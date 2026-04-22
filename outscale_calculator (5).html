@@ -1,0 +1,1086 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>OUTSCALE — Estimateur budgétaire cloud</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --os-blue:#005386;--os-blue-dark:#002f4e;--os-blue-mid:#006ea8;
+  --os-blue-pale:#e6f2fa;--os-blue-pale2:#f0f7fc;
+  --os-orange:#f47920;--os-orange-dark:#c75f0f;--os-orange-pale:#fff4eb;
+  --bg:#f2f5f9;--panel:#ffffff;--panel-2:#f7f9fb;
+  --border:#dce4ec;--border-2:#c4d0db;
+  --text:#1a2b3a;--text-dim:#4d6070;--text-muted:#8098ac;
+  --ok:#0f7a3c;--ok-bg:#e6f5ec;--warn:#b45309;--warn-bg:#fffbeb;
+  --err:#b91c1c;--err-bg:#fef2f2;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);font-family:'DM Sans',system-ui,sans-serif;font-size:14px;line-height:1.5}
+a{color:var(--os-blue)}
+.hdr{background:var(--os-blue-dark);border-bottom:3px solid var(--os-orange);position:sticky;top:0;z-index:50}
+.hdr-inner{max-width:1760px;margin:0 auto;padding:0 20px;height:56px;display:flex;align-items:center;gap:10px}
+.logo-wrap{display:flex;align-items:center;gap:9px;flex-shrink:0}
+.logo-text-main{font-weight:700;font-size:14px;color:#fff;letter-spacing:.04em}
+.logo-text-sub{font-size:10px;color:rgba(255,255,255,.5);letter-spacing:.08em;text-transform:uppercase}
+.vdiv{width:1px;height:28px;background:rgba(255,255,255,.15);flex-shrink:0}
+.nav-tabs{display:flex;gap:2px;background:rgba(0,0,0,.2);border-radius:8px;padding:3px}
+.ntab{padding:5px 12px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;color:rgba(255,255,255,.65);transition:all .15s;white-space:nowrap;border:none;background:none;font-family:inherit}
+.ntab:hover{color:#fff;background:rgba(255,255,255,.1)}
+.ntab.on{color:var(--os-blue-dark);background:#fff}
+.reg-btn{padding:4px 9px;border-radius:5px;font-size:11.5px;font-weight:500;cursor:pointer;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:rgba(255,255,255,.7);transition:all .15s;white-space:nowrap;font-family:inherit}
+.reg-btn:hover{border-color:rgba(255,255,255,.5);color:#fff}
+.reg-btn.on{background:var(--os-orange);color:#fff;border-color:var(--os-orange)}
+.io-btn{padding:5px 10px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:rgba(255,255,255,.85);transition:all .15s;font-family:inherit}
+.io-btn:hover{background:rgba(255,255,255,.2)}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.phdr{display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid var(--border)}
+.slbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-muted);font-weight:600;margin-bottom:3px}
+.stitle{font-size:16px;font-weight:700;color:var(--os-blue-dark);letter-spacing:-.01em}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;border-radius:7px;font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--border-2);background:var(--panel);color:var(--text);transition:all .15s;font-family:inherit;white-space:nowrap}
+.btn:hover{border-color:var(--os-blue);color:var(--os-blue)}
+.btn.orange{background:var(--os-orange);color:#fff;border-color:var(--os-orange)}
+.btn.orange:hover{background:var(--os-orange-dark);border-color:var(--os-orange-dark)}
+.btn.blue{background:var(--os-blue);color:#fff;border-color:var(--os-blue)}
+.btn.blue:hover{background:var(--os-blue-mid)}
+.btn.ghost{background:transparent;border-color:transparent}
+.btn.ghost:hover{background:var(--panel-2);border-color:var(--border)}
+.btn.sm{padding:5px 10px;font-size:12px}
+.btn.xs{padding:3px 8px;font-size:11px}
+.btn.danger:hover{border-color:var(--err);color:var(--err);background:var(--err-bg)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.inp,.sel{width:100%;background:var(--panel);border:1px solid var(--border);color:var(--text);border-radius:7px;padding:7px 10px;font-size:13px;transition:border-color .15s,box-shadow .15s;font-family:inherit}
+.inp:focus,.sel:focus{outline:none;border-color:var(--os-blue);box-shadow:0 0 0 3px rgba(0,83,134,.1)}
+.mono{font-family:'DM Mono',monospace}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-dim);font-weight:600;margin-bottom:4px}
+input[type=number]::-webkit-inner-spin-button{opacity:.35}
+.bdg{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.02em}
+.b-comp{background:#dbeafe;color:#1e4d8c}.b-ded{background:#dbeafe;color:#1e4d8c}
+.b-gpu{background:#ede9fe;color:#5b21b6}.b-oks{background:#cffafe;color:#0e7490}
+.b-bsu{background:#e0f2fe;color:#075985}.b-oos{background:#e0f2fe;color:#0369a1}
+.b-net{background:#d1fae5;color:#065f46}.b-lic{background:#fce7f3;color:#9d174d}
+.acc{border:1px solid var(--border);border-radius:9px;margin-bottom:7px;background:var(--panel)}
+.acc-hd{display:flex;align-items:center;gap:9px;padding:10px 13px;cursor:pointer;user-select:none;transition:background .1s}
+.acc-hd:hover{background:var(--panel-2)}
+.acc-bd{border-top:1px solid var(--border);padding:13px}
+.caret{width:14px;height:14px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:9px;transition:transform .15s;flex-shrink:0}
+.caret.o{transform:rotate(90deg)}
+.kpi-bar{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid var(--border)}
+.kpi{padding:15px 18px}.kpi.main{background:var(--os-blue-dark)}
+.kpi-v{font-size:26px;font-weight:700;letter-spacing:-.03em;line-height:1;margin-top:5px}
+.kpi.main .kpi-v{color:#fff}.kpi.main .lbl{color:rgba(255,255,255,.6)}
+.pvt{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+.pvt th{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;color:var(--text-dim);padding:8px 12px;border-bottom:2px solid var(--border);background:var(--panel-2);text-align:left;position:sticky;top:0;z-index:2}
+.pvt th.r{text-align:right}.pvt td{padding:7px 12px;border-bottom:1px solid var(--border)}
+.pvt tr.gr:hover td{background:var(--os-blue-pale2)}.pvt tr.gr td{font-weight:600;cursor:pointer}
+.pvt tr.dr td{background:#fafcfe}.pvt tr.dr:hover td{background:var(--os-blue-pale2)}
+.pvt td.num{font-family:'DM Mono',monospace;text-align:right;font-size:12.5px}
+.pvt td.numh{font-family:'DM Mono',monospace;text-align:right;font-weight:600;color:var(--os-blue-dark);font-size:12.5px}
+.pvt tr.tot td{border-top:2px solid var(--os-blue);background:var(--os-blue-pale);font-weight:700;font-size:14px}
+.pvt tr.tot .numh{color:var(--os-orange-dark);font-size:15px}
+.prog{height:4px;border-radius:2px;background:var(--border);overflow:hidden;flex-shrink:0}
+.prog-b{height:100%;border-radius:2px;background:var(--os-orange);transition:width .35s}
+/* CATALOG PAGE */
+.cat-section{padding:8px 12px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--os-blue);background:var(--os-blue-pale);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.cat-row-grid{display:grid;grid-template-columns:minmax(220px,2fr) repeat(5,96px);background:var(--panel);border-bottom:1px solid var(--border)}
+.cat-row-grid:hover{background:var(--os-blue-pale2)}
+.cat-cell{padding:5px 8px;font-size:12.5px}
+.cat-inp{width:88px;background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:4px 6px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text);transition:border-color .15s}
+.cat-inp:focus{outline:none;border-color:var(--os-blue);box-shadow:0 0 0 2px rgba(0,83,134,.1)}
+.cat-inp.dirty{border-color:var(--os-orange);background:var(--os-orange-pale)}
+.cat-inp.fresh{border-color:var(--ok);background:var(--ok-bg)}
+.warn-banner{border-left:3px solid var(--os-orange);background:var(--os-orange-pale);padding:9px 13px;border-radius:0 7px 7px 0;font-size:13px;color:#7c3700}
+.info-banner{border-left:3px solid var(--os-blue);background:var(--os-blue-pale);padding:9px 13px;border-radius:0 7px 7px 0;font-size:13px;color:var(--os-blue-dark)}
+.ok-banner{border-left:3px solid var(--ok);background:var(--ok-bg);padding:9px 13px;border-radius:0 7px 7px 0;font-size:13px;color:var(--ok)}
+.err-banner{border-left:3px solid var(--err);background:var(--err-bg);padding:9px 13px;border-radius:0 7px 7px 0;font-size:13px;color:var(--err)}
+.help h2{font-size:17px;color:var(--os-blue-dark);margin:22px 0 8px;padding-bottom:6px;border-bottom:2px solid var(--os-blue-pale)}
+.help h3{font-size:13px;color:var(--os-blue);font-weight:600;margin:14px 0 5px}
+.help p{margin:5px 0 10px;color:var(--text-dim);line-height:1.65}
+.help li{margin:3px 0;color:var(--text-dim);line-height:1.65}
+.help table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0 14px}
+.help table th{background:var(--os-blue-pale);color:var(--os-blue-dark);padding:6px 10px;text-align:left;border:1px solid var(--border);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.help table td{padding:6px 10px;border:1px solid var(--border);vertical-align:top}
+.help table tr:nth-child(even) td{background:#f8fbfd}
+.code{font-family:'DM Mono',monospace;background:var(--panel-2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11.5px}
+.scroll{scrollbar-width:thin;scrollbar-color:var(--border-2) transparent}
+.scroll::-webkit-scrollbar{width:6px;height:6px}
+.scroll::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:3px}
+.fade-in{animation:fi .22s ease}
+@keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.spin{animation:sp 1s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+.tag{display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600}
+.tblue{background:var(--os-blue-pale);color:var(--os-blue)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState,useEffect,useMemo,useRef,useCallback} = React;
+
+const DEFAULT_C = {
+  ram:       [0.005,0.006,0.004,0.004,0.004],
+  ded_fee:   [2.000,2.400,2.100,1.800,2.220],
+  vcore:{
+    v7:{medium:[0.034,0.041,0.037,0.032,0.048],high:[0.038,0.046,0.042,0.034,0.051],highest:[0.043,0.052,0.048,0.037,0.054]},
+    v6:{medium:[0.031,0.037,0.034,0.028,0.043],high:[0.035,0.042,0.039,0.031,0.045],highest:[0.040,0.048,0.045,0.034,0.054]},
+    v5:{medium:[0.031,0.037,0.034,0.028,0.043],high:[0.035,0.042,0.039,0.031,0.045],highest:[0.040,0.048,0.045,0.034,0.054]},
+    v4:{medium:[0.033,0.040,0.033,0.027,0.043],high:[0.039,0.047,0.042,0.033,0.048],highest:[0.046,0.055,0.053,0.041,0.054]},
+    v3:{medium:[0.020,0.024,0.024,0.019,0.026],high:[0.039,0.047,0.042,0.033,0.048],highest:[0.041,0.049,0.043,0.037,0.051]},
+    v2:{medium:[0.016,0.019,0.020,0.015,0.021],high:[0.022,0.026,0.026,0.021,0.028],highest:[0.028,0.034,0.031,0.026,0.034]},
+    v1:{medium:[0.011,0.013,0.013,0.011,0.014],high:[0.016,0.019,0.018,0.015,0.019],highest:[0.020,0.024,0.022,0.018,0.024]},
+  },
+  gpu:{
+    "Nvidia K2":      [0.55, 0.66, 0.58, 0.50, 0.611],
+    "Nvidia P6":      [1.00, 1.20, 1.26, 1.08, 1.332],
+    "Nvidia P100":    [1.20, 1.44, 1.10, 0.95, 1.170],
+    "Nvidia V100":    [1.80, 0,    1.89, 1.62, 1.980],
+    "Nvidia A100-40": [2.00, 2.40, 2.60, 2.60, 2.600],
+    "Nvidia A100-80": [3.60, 4.32, 0,    0,    0    ],
+    "Nvidia A10":     [1.50, 1.80, 0,    0,    0    ],
+    "Nvidia L40":     [2.00, 2.40, 2.20, 2.20, 2.640],
+    "Nvidia H100":    [4.00, 4.80, 4.40, 4.40, 4.510],
+    "Nvidia H200":    [5.20, 6.24, 5.20, 5.20, 5.500],
+  },
+  oks:{
+    "cp.mono.master":      [0.040,0.048,0,0,0],
+    "cp.3.masters.small":  [0.130,0.156,0,0,0],
+    "cp.3.masters.medium": [0.260,0.312,0,0,0],
+    "cp.3.masters.large":  [0.390,0.468,0,0,0],
+  },
+  storage:{
+    "BSU Magnetic (standard)": {gb:[0.039,0.047,0.058,0.058,0.039],iops:[0,0,0,0,0]},
+    "BSU Performance (gp2)":   {gb:[0.110,0.132,0.110,0.110,0.110],iops:[0,0,0,0,0]},
+    "BSU Enterprise (io1)":    {gb:[0.130,0.156,0.130,0.130,0.130],iops:[0.010,0.012,0.010,0.010,0.010]},
+    "Snapshots":               {gb:[0.055,0.066,0.055,0.055,0.055],iops:[0,0,0,0,0]},
+  },
+  oos:{gb:[0.025,0.030,0.025,0.025,0.025]},
+  vpn:       [0.030,0.036,0.031,0.027,0.033],
+  nat:       [0.050,0.060,0.052,0.045,0.056],
+  lbu:       [0.030,0.036,0.032,0.027,0.033],
+  eip:       [0.005,0.006,0.005,0.005,0.006],
+  dl_setup:  [1000, 1200, 1050,  900, 1500],
+  dl_1gbps:  [ 400,  480,  420,  360,  600],
+  dl_10gbps: [2800, 3360, 2940, 2520, 4200],
+  hdl_setup: [4200, 4200,    0,    0,    0],
+  hdl_1gbps: [2950, 2950,    0,    0,    0],
+  hdl_10gbps:[4950, 4950,    0,    0,    0],
+  lic:{
+    "Windows Server 2019/2022 (pack 2 coeurs - jusqu'a 2 VMs)": {base:"h",price:[0.121,0.121,0.121,0.121,0.121]},
+    "Microsoft SQL Server 2019 - Web Edition (pack 2 coeurs)":   {base:"h",price:[0.036,0.036,0.036,0.036,0.036]},
+    "Microsoft SQL Server 2019 - Standard (pack 2 coeurs)":      {base:"h",price:[0.566,0.566,0.566,0.566,0.566]},
+    "Microsoft SQL Server 2019 - Enterprise (pack 2 coeurs)":    {base:"h",price:[2.168,2.168,2.168,2.168,2.168]},
+    "Red Hat Enterprise Linux (1 licence par vCore)":            {base:"h",price:[0.019,0.019,0.019,0.019,0.019]},
+    "Oracle Linux OS (par VM)":                                  {base:"h",price:[0.200,0.200,0,    0,    0    ]},
+    "Red Hat Enterprise Linux OS (par VM)":                      {base:"h",price:[0.200,0.200,0,    0,    0    ]},
+    "Windows 10 E3 VDA (par VM)":                                {base:"h",price:[0.060,0.060,0.060,0.060,0.060]},
+  },
+};
+
+const REGIONS=[
+  {id:"eu-west-2",           flag:"FR", short:"EU-W2",  name:"Europe Ouest (France)"},
+  {id:"cloudgouv-eu-west-1", flag:"FR", short:"GOUV",   name:"Cloud Souverain (France)"},
+  {id:"us-west-1",           flag:"US", short:"US-W1",  name:"US Ouest"},
+  {id:"us-east-2",           flag:"US", short:"US-E2",  name:"US Est"},
+  {id:"ap-northeast-1",      flag:"JP", short:"AP-NE1", name:"Asie (Japon)"},
+];
+const FLAG={FR:"🇫🇷",US:"🇺🇸",JP:"🇯🇵"};
+const RIDXof=id=>REGIONS.findIndex(r=>r.id===id);
+
+const ENGAGEMENTS=[
+  {id:"on-demand",       label:"A la demande",                   d:0.00},
+  {id:"ri-1m-upfront",   label:"RI 1 mois upfront (-30%)",       d:0.30},
+  {id:"ri-1y-upfront",   label:"RI 1 an upfront (-40%)",         d:0.40},
+  {id:"ri-2y-upfront",   label:"RI 2 ans upfront (-50%)",        d:0.50},
+  {id:"ri-3y-upfront",   label:"RI 3 ans upfront (-60%)",        d:0.60},
+  {id:"ri-1y-quarterly", label:"RI 1 an trimestriel (-37%)",     d:0.37},
+  {id:"ri-2y-quarterly", label:"RI 2 ans trimestriel (-45%)",    d:0.45},
+  {id:"ri-3y-quarterly", label:"RI 3 ans trimestriel (-53%)",    d:0.53},
+  {id:"ri-2y-yearly",    label:"RI 2 ans annuel (-48%)",         d:0.48},
+  {id:"ri-3y-yearly",    label:"RI 3 ans annuel (-56%)",         d:0.56},
+];
+
+const GROUPS=[
+  {id:"compute",          label:"Puissance de calcul",         bc:"b-comp"},
+  {id:"dedicated-access", label:"Acces Dedicated",             bc:"b-ded"},
+  {id:"gpu",              label:"GPU flexible",                bc:"b-gpu"},
+  {id:"oks",              label:"Kubernetes Control Plane",    bc:"b-oks"},
+  {id:"bsu",              label:"Stockage bloc (BSU)",         bc:"b-bsu"},
+  {id:"oos",              label:"Stockage objet (OOS)",        bc:"b-oos"},
+  {id:"net",              label:"Reseau",                      bc:"b-net"},
+  {id:"lic",              label:"Licences",                    bc:"b-lic"},
+];
+
+const BLABELS={compute:"Compute","dedicated-access":"Dedicated",gpu:"GPU",oks:"OKS",bsu:"BSU",oos:"OOS",net:"Reseau",lic:"Licence"};
+const BCLS={compute:"b-comp","dedicated-access":"b-ded",gpu:"b-gpu",oks:"b-oks",bsu:"b-bsu",oos:"b-oos",net:"b-net",lic:"b-lic"};
+const HPM=730;
+const UID=()=>Math.random().toString(36).slice(2,10);
+const fE=(v,d=0)=>(v||0).toLocaleString("fr-FR",{minimumFractionDigits:d,maximumFractionDigits:d})+" EUR";
+const fp=(v,d=4)=>parseFloat((v||0).toFixed(d));
+
+function calcLine(line,C,regionId){
+  const ri=Math.max(0,RIDXof(regionId));
+  const eng=ENGAGEMENTS.find(e=>e.id===(line.engagement||"on-demand"))||ENGAGEMENTS[0];
+  const disc=eng.d, usage=parseFloat(line.usage??1)||1;
+  let monthly=0,detail="",group=line.type,setup=0;
+  switch(line.type){
+    case "compute":{
+      const vt=C.vcore[line.cpu_gen]||C.vcore.v7;
+      const vcUO=(vt[line.perf||"high"]||vt.high)[ri]||0;
+      const perH=Number(line.vcore||0)*vcUO+Number(line.ram||0)*(C.ram[ri]||0);
+      const ded=line.dedicated?1.10:1.0;
+      let stoM=0;
+      if(line.storage_type&&Number(line.storage_gb)>0){
+        const s=C.storage[line.storage_type];
+        if(s)stoM=((s.gb[ri]||0)*Number(line.storage_gb)+(s.iops[ri]||0)*Number(line.iops||0))*Number(line.qty||1);
+      }
+      monthly=perH*Number(line.qty||1)*HPM*usage*(1-disc)*ded+stoM;
+      detail=`${line.qty}x${line.vcore}vC.${line.ram}GiB ${line.cpu_gen}/${line.perf}`+(line.dedicated?" ded":"")+` ${eng.label}`;
+      break;
+    }
+    case "dedicated-access":
+      monthly=(C.ded_fee[ri]||0)*HPM*Number(line.qty||1)*usage*(1-disc);
+      detail=`${line.qty}x acces dedicated ${fE(C.ded_fee[ri]||0,3)}/h`;
+      break;
+    case "gpu":{
+      const pa=C.gpu[line.gpu_type];
+      const p=pa?(pa[ri]||0):0;
+      const gDisc=Math.min(disc,0.30);
+      monthly=p*Number(line.gpu_qty||0)*HPM*usage*(1-gDisc);
+      detail=`${line.gpu_qty}x${line.gpu_type}`+(disc>0.30?" cap30%":"")+` ${eng.label}`;
+      break;
+    }
+    case "oks":{
+      const p=(C.oks[line.cp]||C.oks["cp.3.masters.small"])[ri]||0;
+      monthly=p*HPM*Number(line.qty||1)*usage*(1-disc);
+      detail=`${line.qty}x${line.cp}`;break;
+    }
+    case "bsu":{
+      const s=C.storage[line.storage_type]||C.storage["BSU Magnetic (standard)"];
+      monthly=((s.gb[ri]||0)*Number(line.storage_gb||0)+(s.iops[ri]||0)*Number(line.iops||0))*Number(line.qty||1);
+      detail=`${line.qty}x${line.storage_gb}GiB ${line.storage_type}`;break;
+    }
+    case "oos":
+      monthly=(C.oos.gb[ri]||0)*Number(line.storage_gb||0);
+      detail=`${line.storage_gb}GiB`;break;
+    case "net":{
+      const t=line.net_type||"",q=Number(line.net_qty||0);
+      if(t.startsWith("VPN"))          monthly=(C.vpn[ri]||0)*q*HPM;
+      else if(t.startsWith("LBU"))     monthly=(C.lbu[ri]||0)*q*HPM;
+      else if(t.startsWith("EIP"))     monthly=(C.eip[ri]||0)*q*HPM;
+      else if(t.startsWith("NAT"))     monthly=(C.nat[ri]||0)*q*HPM;
+      else if(t==="DirectLink 1 Gb/s (par mois)")     monthly=(C.dl_1gbps[ri]||0)*q;
+      else if(t==="DirectLink 10 Gb/s (par mois)")    monthly=(C.dl_10gbps[ri]||0)*q;
+      else if(t==="DirectLink - frais de mise en service")         {setup=(C.dl_setup[ri]||0)*q;monthly=0;}
+      else if(t==="Hosted DirectLink - frais de mise en service")  {setup=(C.hdl_setup[ri]||0)*q;monthly=0;}
+      else if(t==="Hosted DirectLink 1 Gb/s (par mois)")  monthly=(C.hdl_1gbps[ri]||0)*q;
+      else if(t==="Hosted DirectLink 10 Gb/s (par mois)") monthly=(C.hdl_10gbps[ri]||0)*q;
+      detail=`${q>0?q+"x":""}${t}`;break;
+    }
+    case "lic":{
+      const l=C.lic[line.lic_type];if(!l)break;
+      const p=(l.price[ri]||0),f=l.base==="h"?HPM:(l.base==="m"?1:1/12);
+      monthly=p*f*Number(line.lic_qty||0);
+      detail=`${line.lic_qty}x${line.lic_type}`;break;
+    }
+  }
+  return{group,monthly,yearly:monthly*12+setup,three_year:(monthly*12+setup)*3-setup*2,setup,detail};
+}
+
+const DEMO=[
+  {id:UID(),type:"compute",desc:"VM inference v10",qty:1,cpu_gen:"v7",vcore:126,ram:1024,perf:"highest",engagement:"ri-1y-upfront",dedicated:false,usage:1},
+  {id:UID(),type:"compute",desc:"Web tier",qty:1,cpu_gen:"v7",vcore:4,ram:16,perf:"high",engagement:"on-demand",dedicated:false,usage:1},
+  {id:UID(),type:"compute",desc:"Worker pool",qty:3,cpu_gen:"v7",vcore:2,ram:4,perf:"medium",engagement:"on-demand",dedicated:false,usage:1},
+  {id:UID(),type:"compute",desc:"App front HA",qty:2,cpu_gen:"v7",vcore:4,ram:16,perf:"highest",engagement:"on-demand",dedicated:false,usage:1},
+  {id:UID(),type:"compute",desc:"SGBD + BSU gp2",qty:1,cpu_gen:"v7",vcore:2,ram:4,perf:"high",engagement:"on-demand",dedicated:false,usage:1,storage_type:"BSU Performance (gp2)",storage_gb:500,iops:0},
+  {id:UID(),type:"compute",desc:"Cluster RI 1M",qty:2,cpu_gen:"v7",vcore:8,ram:12,perf:"high",engagement:"ri-1m-upfront",dedicated:false,usage:1},
+  {id:UID(),type:"compute",desc:"Cluster RI 2Y",qty:3,cpu_gen:"v7",vcore:8,ram:12,perf:"high",engagement:"ri-2y-upfront",dedicated:false,usage:1},
+  {id:UID(),type:"compute",desc:"Cluster RI 3Y",qty:4,cpu_gen:"v7",vcore:8,ram:12,perf:"high",engagement:"ri-3y-upfront",dedicated:false,usage:1},
+  {id:UID(),type:"dedicated-access",desc:"Acces FCU Dedicated",qty:1,engagement:"on-demand",usage:1},
+  {id:UID(),type:"compute",desc:"VM dediee bastion",qty:1,cpu_gen:"v7",vcore:8,ram:32,perf:"high",engagement:"on-demand",dedicated:true,usage:1},
+  {id:UID(),type:"oks",desc:"OKS Control Plane HA",qty:1,cp:"cp.3.masters.small",engagement:"on-demand",usage:1},
+  {id:UID(),type:"gpu",desc:"GPU inference H100",gpu_qty:1,gpu_type:"Nvidia H100",engagement:"on-demand",usage:1},
+  {id:UID(),type:"gpu",desc:"Ferme GPU H200",gpu_qty:8,gpu_type:"Nvidia H200",engagement:"ri-1y-upfront",usage:1},
+  {id:UID(),type:"bsu",desc:"BSU Magnetic",qty:2,storage_type:"BSU Magnetic (standard)",storage_gb:300,iops:0},
+  {id:UID(),type:"bsu",desc:"BSU Performance",qty:1,storage_type:"BSU Performance (gp2)",storage_gb:1500,iops:0},
+  {id:UID(),type:"bsu",desc:"BSU Enterprise",qty:1,storage_type:"BSU Enterprise (io1)",storage_gb:100,iops:10000},
+  {id:UID(),type:"bsu",desc:"Snapshots",qty:1,storage_type:"Snapshots",storage_gb:3000,iops:0},
+  {id:UID(),type:"oos",desc:"Stockage objet OOS",storage_gb:150},
+  {id:UID(),type:"lic",desc:"Windows Server",lic_type:"Windows Server 2019/2022 (pack 2 coeurs - jusqu'a 2 VMs)",lic_qty:4},
+  {id:UID(),type:"lic",desc:"SQL Server Standard",lic_type:"Microsoft SQL Server 2019 - Standard (pack 2 coeurs)",lic_qty:2},
+  {id:UID(),type:"lic",desc:"SQL Server Enterprise",lic_type:"Microsoft SQL Server 2019 - Enterprise (pack 2 coeurs)",lic_qty:2},
+  {id:UID(),type:"lic",desc:"RHEL",lic_type:"Red Hat Enterprise Linux (1 licence par vCore)",lic_qty:4},
+  {id:UID(),type:"net",desc:"VPN IPsec",net_type:"VPN IPsec",net_qty:1},
+  {id:UID(),type:"net",desc:"Load balancer",net_type:"LBU ( / h)",net_qty:1},
+  {id:UID(),type:"net",desc:"NAT Gateway",net_type:"NAT gateway ( / h)",net_qty:1},
+  {id:UID(),type:"net",desc:"EIP",net_type:"EIP ( / h)",net_qty:2},
+];
+
+/* ── Composants de base ── */
+function Bdg({type}){return <span className={"bdg "+(BCLS[type]||"b-comp")}>{BLABELS[type]||type}</span>;}
+function Fld({label,children,hint,w2}){
+  return <div className={w2?"col-span-2":""}>
+    <div className="lbl">{label}</div>{children}
+    {hint&&<div style={{fontSize:11,color:"var(--text-muted)",marginTop:2}}>{hint}</div>}
+  </div>;
+}
+function Sel({value,onChange,options,placeholder}){
+  return <select className="sel" value={value||""} onChange={e=>onChange(e.target.value)}>
+    {placeholder&&<option value="">{placeholder}</option>}
+    {options.map(o=>typeof o==="string"?<option key={o} value={o}>{o}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}
+  </select>;
+}
+function Num({value,onChange,min=0,step=1}){
+  return <input type="number" className="inp mono" min={min} step={step} value={value??""}
+    onChange={e=>onChange(e.target.value===""?"":Number(e.target.value))}/>;
+}
+
+const ENG_OPTS=ENGAGEMENTS.map(e=>({v:e.id,l:e.label}));
+const PERF_OPTS=[{v:"medium",l:"medium (p3)"},{v:"high",l:"high (p2)"},{v:"highest",l:"highest (p1)"}];
+const CPUGENS=["v1","v2","v3","v4","v5","v6","v7"];
+const NET_OPTS=["VPN IPsec","LBU ( / h)","EIP ( / h)","NAT gateway ( / h)",
+  "DirectLink 1 Gb/s (par mois)","DirectLink 10 Gb/s (par mois)",
+  "DirectLink - frais de mise en service","Hosted DirectLink - frais de mise en service",
+  "Hosted DirectLink 1 Gb/s (par mois)","Hosted DirectLink 10 Gb/s (par mois)"];
+
+/* ── LineEditor ── */
+function LineEditor({line,onChange,onDelete,onDuplicate,C,regionId}){
+  const [open,setOpen]=useState(line._open||false);
+  const u=(k,v)=>onChange({...line,[k]:v});
+  const r=useMemo(()=>calcLine(line,C,regionId),[line,C,regionId]);
+  const STOR_OPTS=Object.keys(C.storage);
+  const GPU_OPTS=Object.keys(C.gpu);
+  const OKS_OPTS=Object.keys(C.oks);
+  const LIC_OPTS=Object.keys(C.lic);
+  const fields=()=>{
+    switch(line.type){
+      case "compute":return(<>
+        <Fld label="Qte VMs"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
+        <Fld label="vCores/VM"><Num value={line.vcore} onChange={v=>u("vcore",v)}/></Fld>
+        <Fld label="RAM GiB/VM"><Num value={line.ram} onChange={v=>u("ram",v)}/></Fld>
+        <Fld label="Generation"><Sel value={line.cpu_gen} onChange={v=>u("cpu_gen",v)} options={CPUGENS}/></Fld>
+        <Fld label="Performance"><Sel value={line.perf} onChange={v=>u("perf",v)} options={PERF_OPTS}/></Fld>
+        <Fld label="Usage" hint="0-1 (1=100%)"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={ENG_OPTS}/></Fld>
+        <Fld label="VM dediee"><Sel value={line.dedicated?"y":"n"} onChange={v=>u("dedicated",v==="y")} options={[{v:"n",l:"Non"},{v:"y",l:"Oui (+10%)"}]}/></Fld>
+        <Fld label="Stockage BSU" w2><Sel value={line.storage_type||""} onChange={v=>u("storage_type",v)} placeholder="Aucun" options={STOR_OPTS}/></Fld>
+        {line.storage_type&&<><Fld label="GiB"><Num value={line.storage_gb} onChange={v=>u("storage_gb",v)}/></Fld><Fld label="IOPS (io1)"><Num value={line.iops} onChange={v=>u("iops",v)}/></Fld></>}
+      </>);
+      case "dedicated-access":return(<>
+        <Fld label="Qte acces"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
+        <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={ENG_OPTS}/></Fld>
+      </>);
+      case "gpu":return(<>
+        <Fld label="Nb GPUs"><Num value={line.gpu_qty} onChange={v=>u("gpu_qty",v)} min={1}/></Fld>
+        <Fld label="Type GPU"><Sel value={line.gpu_type} onChange={v=>u("gpu_type",v)} options={GPU_OPTS}/></Fld>
+        <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={ENG_OPTS}/></Fld>
+        <div className="col-span-2"><div className="warn-banner">Remise RI plafonnee a 30% sur les GPU.</div></div>
+      </>);
+      case "oks":return(<>
+        <Fld label="Nb plans"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
+        <Fld label="Type" w2><Sel value={line.cp} onChange={v=>u("cp",v)} options={OKS_OPTS}/></Fld>
+        <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
+        <Fld label="Engagement"><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={ENG_OPTS}/></Fld>
+      </>);
+      case "bsu":return(<>
+        <Fld label="Nb volumes"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
+        <Fld label="Type" w2><Sel value={line.storage_type} onChange={v=>u("storage_type",v)} options={STOR_OPTS}/></Fld>
+        <Fld label="GiB/vol"><Num value={line.storage_gb} onChange={v=>u("storage_gb",v)}/></Fld>
+        <Fld label="IOPS (io1)"><Num value={line.iops} onChange={v=>u("iops",v)}/></Fld>
+      </>);
+      case "oos":return(<><Fld label="GiB"><Num value={line.storage_gb} onChange={v=>u("storage_gb",v)}/></Fld></>);
+      case "net":return(<>
+        <Fld label="Service reseau" w2><Sel value={line.net_type} onChange={v=>u("net_type",v)} options={NET_OPTS}/></Fld>
+        <Fld label="Quantite"><Num value={line.net_qty} onChange={v=>u("net_qty",v)} min={0}/></Fld>
+      </>);
+      case "lic":return(<>
+        <Fld label="Type licence" w2><Sel value={line.lic_type} onChange={v=>u("lic_type",v)} options={LIC_OPTS}/></Fld>
+        <Fld label="Nb licences"><Num value={line.lic_qty} onChange={v=>u("lic_qty",v)} min={0}/></Fld>
+      </>);
+    }
+  };
+  return(
+    <div className="acc">
+      <div className="acc-hd" onClick={()=>setOpen(!open)}>
+        <span className={"caret"+(open?" o":"")}>&#9658;</span>
+        <Bdg type={line.type}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{line.desc||<em style={{color:"var(--text-muted)"}}>Sans description</em>}</div>
+          <div className="mono" style={{fontSize:11,color:"var(--text-muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{r.detail}</div>
+        </div>
+        <div style={{textAlign:"right",flexShrink:0}}>
+          <div className="mono" style={{fontSize:14,fontWeight:700,color:"var(--os-blue-dark)"}}>{fE(r.monthly,2)}</div>
+          <div style={{fontSize:10,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:".05em"}}>/mois</div>
+        </div>
+      </div>
+      {open&&<div className="acc-bd">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+          <Fld label="Description" w2>
+            <input className="inp" value={line.desc||""} onChange={e=>u("desc",e.target.value)} placeholder="Nom descriptif"/>
+          </Fld>
+          {fields()}
+        </div>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginTop:10}}>
+          <button className="btn sm ghost" onClick={onDuplicate}>Dupliquer</button>
+          <button className="btn sm ghost danger" onClick={onDelete}>Supprimer</button>
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+function AddMenu({onAdd,C}){
+  const [open,setOpen]=useState(false);
+  const ref=useRef(null);
+  useEffect(()=>{const h=e=>{if(ref.current&&!ref.current.contains(e.target))setOpen(false)};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
+  const presets=[
+    {type:"compute",label:"VM (FCU)",def:{qty:1,cpu_gen:"v7",vcore:4,ram:16,perf:"high",engagement:"on-demand",dedicated:false,usage:1}},
+    {type:"dedicated-access",label:"Acces FCU Dedicated",def:{qty:1,engagement:"on-demand",usage:1}},
+    {type:"gpu",label:"Flexible GPU",def:{gpu_qty:1,gpu_type:"Nvidia H100",engagement:"on-demand",usage:1}},
+    {type:"oks",label:"OKS Control Plane",def:{qty:1,cp:"cp.3.masters.small",engagement:"on-demand",usage:1}},
+    {type:"bsu",label:"Volume BSU",def:{qty:1,storage_type:"BSU Performance (gp2)",storage_gb:100,iops:0}},
+    {type:"oos",label:"Stockage objet OOS",def:{storage_gb:100}},
+    {type:"net",label:"Service reseau",def:{net_type:"LBU ( / h)",net_qty:1}},
+    {type:"lic",label:"Licence",def:{lic_type:Object.keys(C.lic)[0],lic_qty:1}},
+  ];
+  return(
+    <div style={{position:"relative"}} ref={ref}>
+      <button className="btn orange" style={{width:"100%",justifyContent:"center"}} onClick={()=>setOpen(!open)}>+ Ajouter une ressource</button>
+      {open&&<div className="card" style={{position:"absolute",zIndex:40,top:"calc(100% + 6px)",left:0,right:0,padding:4}}>
+        {presets.map(p=>(
+          <button key={p.type} style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:6,border:"none",background:"transparent",cursor:"pointer",transition:"background .1s",fontFamily:"inherit"}}
+            onMouseEnter={e=>e.currentTarget.style.background="var(--panel-2)"}
+            onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+            onClick={()=>{onAdd({id:UID(),type:p.type,desc:"",_open:true,...p.def});setOpen(false);}}>
+            <Bdg type={p.type}/><span style={{fontSize:13}}>{p.label}</span>
+          </button>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
+/* ── Pivot ── */
+function PivotTable({lines,results,regionId}){
+  const [exp,setExp]=useState({});
+  const [hz,setHz]=useState("monthly");
+  const grps=useMemo(()=>{
+    const g={};
+    GROUPS.forEach(gd=>g[gd.id]={...gd,items:[],monthly:0,yearly:0,three_year:0});
+    lines.forEach((l,i)=>{const r=results[i],gr=r.group;if(!g[gr])return;g[gr].items.push({line:l,r});g[gr].monthly+=r.monthly;g[gr].yearly+=r.yearly;g[gr].three_year+=r.three_year;});
+    return Object.values(g).filter(g=>g.items.length>0);
+  },[lines,results]);
+  const tot=useMemo(()=>grps.reduce((a,g)=>({monthly:a.monthly+g.monthly,yearly:a.yearly+g.yearly,three_year:a.three_year+g.three_year}),{monthly:0,yearly:0,three_year:0}),[grps]);
+  const rfind=id=>REGIONS.find(r=>r.id===id);
+  return(
+    <div className="card">
+      <div className="kpi-bar">
+        <div className="kpi main">
+          <div className="lbl" style={{color:"rgba(255,255,255,.6)"}}>Total mensuel</div>
+          <div className="kpi-v">{fE(tot.monthly)}</div>
+          <div style={{fontSize:11,color:"rgba(255,255,255,.5)",marginTop:3}}>{lines.length} ligne{lines.length!==1?"s":""} {FLAG[rfind(regionId)?.flag]||""} {regionId}</div>
+        </div>
+        <div className="kpi" style={{borderRight:"1px solid var(--border)"}}>
+          <div className="lbl">Total annuel</div>
+          <div className="kpi-v" style={{color:"var(--os-blue-dark)"}}>{fE(tot.yearly)}</div>
+        </div>
+        <div className="kpi">
+          <div className="lbl">Total 3 ans</div>
+          <div className="kpi-v" style={{color:"var(--os-blue-dark)"}}>{fE(tot.three_year)}</div>
+        </div>
+      </div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
+        <div style={{fontWeight:600,fontSize:14,color:"var(--os-blue-dark)"}}>Detail par categorie</div>
+        <div style={{display:"flex",gap:3,background:"var(--panel-2)",borderRadius:6,padding:3,border:"1px solid var(--border)"}}>
+          {[{k:"monthly",l:"Mois"},{k:"yearly",l:"Annee"},{k:"three_year",l:"3 ans"}].map(t=>(
+            <button key={t.k} onClick={()=>setHz(t.k)} style={{padding:"4px 10px",borderRadius:5,border:"none",fontSize:12,fontWeight:500,cursor:"pointer",background:hz===t.k?"var(--os-blue)":"transparent",color:hz===t.k?"#fff":"var(--text-dim)",transition:"all .15s",fontFamily:"inherit"}}>{t.l}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{overflowX:"auto"}} className="scroll">
+        <table className="pvt">
+          <thead><tr>
+            <th>Groupe / Ressource</th>
+            <th className="r">Mensuel HT</th><th className="r">Annuel HT</th><th className="r">3 ans HT</th><th className="r">%</th>
+          </tr></thead>
+          <tbody>
+            {grps.map(g=>{
+              const isO=exp[g.id],pct=tot[hz]>0?g[hz]/tot[hz]*100:0;
+              return(<React.Fragment key={g.id}>
+                <tr className="gr" onClick={()=>setExp({...exp,[g.id]:!isO})}>
+                  <td><div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <span style={{color:"var(--text-muted)",fontSize:9,transform:isO?"rotate(90deg)":"",display:"inline-block",transition:"transform .15s"}}>&#9658;</span>
+                    <span className={"bdg "+g.bc}>{g.label}</span>
+                    <span style={{fontSize:11,color:"var(--text-muted)"}}>{g.items.length} ligne{g.items.length>1?"s":""}</span>
+                  </div></td>
+                  <td className="numh">{fE(g.monthly,2)}</td>
+                  <td className="numh">{fE(g.yearly,2)}</td>
+                  <td className="numh">{fE(g.three_year,2)}</td>
+                  <td className="num">
+                    <div style={{display:"flex",alignItems:"center",gap:7,justifyContent:"flex-end"}}>
+                      <div className="prog" style={{width:52}}><div className="prog-b" style={{width:`${Math.min(100,pct)}%`}}/></div>
+                      <span className="mono" style={{width:40,textAlign:"right",fontSize:12}}>{pct.toFixed(1)}%</span>
+                    </div>
+                  </td>
+                </tr>
+                {isO&&g.items.map((it,i)=>(
+                  <tr key={i} className="dr">
+                    <td style={{paddingLeft:30}}>
+                      <div style={{fontWeight:500}}>{it.line.desc||<em style={{color:"var(--text-muted)",fontWeight:400}}>Sans description</em>}</div>
+                      <div className="mono" style={{fontSize:11,color:"var(--text-muted)"}}>{it.r.detail}</div>
+                    </td>
+                    <td className="num">{fE(it.r.monthly,2)}</td>
+                    <td className="num">{fE(it.r.yearly,2)}</td>
+                    <td className="num">{fE(it.r.three_year,2)}</td>
+                    <td className="num" style={{fontSize:11}}>{tot[hz]>0?(it.r[hz]/tot[hz]*100).toFixed(2)+"%":"..."}</td>
+                  </tr>
+                ))}
+              </React.Fragment>);
+            })}
+            <tr className="tot">
+              <td>Total general</td>
+              <td className="numh">{fE(tot.monthly)}</td><td className="numh">{fE(tot.yearly)}</td><td className="numh">{fE(tot.three_year)}</td>
+              <td className="num">100%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function EngBreakdown({lines,results}){
+  const data=useMemo(()=>{
+    const by={};
+    lines.forEach((l,i)=>{const id=l.engagement||"...";if(!by[id]){const d=ENGAGEMENTS.find(e=>e.id===id);by[id]={id,label:d?d.label:"...",monthly:0,count:0};}by[id].monthly+=results[i].monthly;by[id].count+=1;});
+    const tot=Object.values(by).reduce((s,b)=>s+b.monthly,0);
+    return{items:Object.values(by).sort((a,b)=>b.monthly-a.monthly),tot};
+  },[lines,results]);
+  return(
+    <table className="pvt">
+      <thead><tr><th>Engagement</th><th className="r">Lignes</th><th className="r">Mensuel HT</th><th className="r">Part</th></tr></thead>
+      <tbody>{data.items.map(it=>(
+        <tr key={it.id} className="dr">
+          <td style={{fontWeight:500}}>{it.label}</td>
+          <td className="num">{it.count}</td>
+          <td className="numh">{fE(it.monthly,2)}</td>
+          <td className="num">
+            <div style={{display:"flex",alignItems:"center",gap:7,justifyContent:"flex-end"}}>
+              <div className="prog" style={{width:52}}><div className="prog-b" style={{width:`${data.tot>0?it.monthly/data.tot*100:0}%`}}/></div>
+              <span className="mono" style={{width:40,textAlign:"right",fontSize:12}}>{data.tot>0?(it.monthly/data.tot*100).toFixed(1):0}%</span>
+            </div>
+          </td>
+        </tr>
+      ))}</tbody>
+    </table>
+  );
+}
+
+function RegionComp({lines,C}){
+  const data=useMemo(()=>REGIONS.map(r=>({...r,total:lines.reduce((s,l)=>s+calcLine(l,C,r.id).monthly,0)})),[lines,C]);
+  const max=Math.max(...data.map(d=>d.total),1);
+  return(<div style={{padding:"4px 0"}}>
+    {data.map(d=>(
+      <div key={d.id} style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+        <span style={{width:28,fontSize:16,flexShrink:0}}>{FLAG[d.flag]}</span>
+        <div style={{flex:1}}>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3}}>
+            <span className="mono" style={{fontWeight:500,fontSize:11.5}}>{d.id}</span>
+            <span className="mono" style={{color:"var(--os-blue-dark)",fontWeight:600}}>{fE(d.total)}</span>
+          </div>
+          <div className="prog"><div className="prog-b" style={{width:`${d.total/max*100}%`}}/></div>
+        </div>
+      </div>
+    ))}
+  </div>);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PAGE CATALOGUE / GESTION TARIFS
+══════════════════════════════════════════════════════════════════ */
+function CatalogPage({C,onUpdate,fetchStatus,onFetch,lastFetch}){
+  const [edits,setEdits]=useState({});
+  const [saved,setSaved]=useState({});
+  const setE=(k,v)=>setEdits(e=>({...e,[k]:v}));
+  const dirtyCount=Object.keys(edits).length;
+
+  const applyEdits=()=>{
+    let nc=JSON.parse(JSON.stringify(C));
+    for(const [k,v] of Object.entries(edits)){
+      const parts=k.split("__");const val=parseFloat(v);if(isNaN(val))continue;
+      try{
+        if(parts[0]==="ram")           nc.ram[+parts[1]]=val;
+        else if(parts[0]==="ded_fee")  nc.ded_fee[+parts[1]]=val;
+        else if(parts[0]==="vcore")    nc.vcore[parts[1]][parts[2]][+parts[3]]=val;
+        else if(parts[0]==="gpu")      nc.gpu[parts[1]][+parts[2]]=val;
+        else if(parts[0]==="oks")      nc.oks[parts[1]][+parts[2]]=val;
+        else if(parts[0]==="stor_gb")  nc.storage[parts[1]].gb[+parts[2]]=val;
+        else if(parts[0]==="stor_iops")nc.storage[parts[1]].iops[+parts[2]]=val;
+        else if(parts[0]==="oos")      nc.oos.gb[+parts[1]]=val;
+        else if(parts[0]==="vpn")      nc.vpn[+parts[1]]=val;
+        else if(parts[0]==="nat")      nc.nat[+parts[1]]=val;
+        else if(parts[0]==="lbu")      nc.lbu[+parts[1]]=val;
+        else if(parts[0]==="eip")      nc.eip[+parts[1]]=val;
+        else if(parts[0]==="dl_setup") nc.dl_setup[+parts[1]]=val;
+        else if(parts[0]==="dl_1g")    nc.dl_1gbps[+parts[1]]=val;
+        else if(parts[0]==="dl_10g")   nc.dl_10gbps[+parts[1]]=val;
+        else if(parts[0]==="hdl_setup")nc.hdl_setup[+parts[1]]=val;
+        else if(parts[0]==="hdl_1g")   nc.hdl_1gbps[+parts[1]]=val;
+        else if(parts[0]==="hdl_10g")  nc.hdl_10gbps[+parts[1]]=val;
+        else if(parts[0]==="lic")      nc.lic[parts[1]].price[+parts[2]]=val;
+      }catch(e){}
+    }
+    onUpdate(nc);setSaved({...edits});setEdits({});
+  };
+
+  const reset=()=>{if(confirm("Reinitialiser tous les tarifs aux valeurs par defaut v57 ?")){ onUpdate(JSON.parse(JSON.stringify(DEFAULT_C)));setEdits({});setSaved({}); }};
+
+  function PriceRow({label,bk,arr}){
+    return(
+      <div className="cat-row-grid">
+        <div className="cat-cell" style={{color:"var(--text-dim)",fontSize:12.5,alignSelf:"center"}}>{label}</div>
+        {arr.map((v,i)=>{
+          const k=`${bk}__${i}`;
+          const isDirty=edits[k]!==undefined;
+          const wasSaved=!isDirty&&saved[k]!==undefined;
+          const displayV=isDirty?edits[k]:(v===0?"0":String(fp(v,4)));
+          return(
+            <div key={i} className="cat-cell">
+              <input className={"cat-inp"+(isDirty?" dirty":wasSaved?" fresh":"")}
+                value={displayV} onChange={e=>setE(k,e.target.value)}
+                title={`${REGIONS[i].name}: ${v}`}/>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return(
+    <div className="fade-in">
+      <div className="card" style={{marginBottom:14}}>
+        <div style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:16,color:"var(--os-blue-dark)"}}>Gestion des tarifs</div>
+            <div style={{fontSize:12,color:"var(--text-muted)",marginTop:2}}>
+              Source : <a href="https://fr.outscale.com/tarifs/" target="_blank" rel="noreferrer">fr.outscale.com/tarifs</a>
+              {lastFetch&&<> &nbsp;&#183;&nbsp; Derniere synchro : <span className="mono" style={{fontSize:11}}>{lastFetch}</span></>}
+            </div>
+          </div>
+
+          <button className="btn blue" onClick={onFetch} disabled={fetchStatus==="loading"} style={{gap:7,minWidth:240,justifyContent:"center"}}>
+            {fetchStatus==="loading"
+              ?<><span className="spin">&#8635;</span> Recuperation en cours...</>
+              :<><span style={{fontSize:16}}>&#8635;</span> Recuperer les tarifs sur fr.outscale.com</>}
+          </button>
+
+          {dirtyCount>0&&<button className="btn orange" onClick={applyEdits}>Appliquer {dirtyCount} modification{dirtyCount>1?"s":""}</button>}
+          <button className="btn ghost" onClick={reset}>Reinitialiser v57</button>
+        </div>
+
+        {fetchStatus==="loading"&&<div style={{padding:"8px 16px",borderTop:"1px solid var(--border)"}}>
+          <div className="info-banner">Interrogation de fr.outscale.com/tarifs/ via l'API Claude... (~15 secondes)</div>
+        </div>}
+        {fetchStatus==="ok"&&<div style={{padding:"8px 16px",borderTop:"1px solid var(--border)"}}>
+          <div className="ok-banner">Tarifs recuperes et appliques depuis fr.outscale.com/tarifs/ — valeurs en vert = mises a jour.</div>
+        </div>}
+        {fetchStatus==="partial"&&<div style={{padding:"8px 16px",borderTop:"1px solid var(--border)"}}>
+          <div className="warn-banner">Tarifs partiellement recuperes. Verifiez les valeurs en orange et completez manuellement si necessaire.</div>
+        </div>}
+        {fetchStatus==="error"&&<div style={{padding:"8px 16px",borderTop:"1px solid var(--border)"}}>
+          <div className="err-banner">Impossible de recuperer les tarifs. Verifiez votre connexion ou editez manuellement ci-dessous.</div>
+        </div>}
+      </div>
+
+      <div className="card" style={{overflow:"hidden"}}>
+        {/* En-tete regions */}
+        <div style={{display:"grid",gridTemplateColumns:"minmax(220px,2fr) repeat(5,96px)",background:"var(--os-blue-dark)",padding:"8px 0"}}>
+          <div style={{padding:"0 8px",fontSize:11,fontWeight:600,color:"rgba(255,255,255,.5)",textTransform:"uppercase",letterSpacing:".06em",alignSelf:"center"}}>Service</div>
+          {REGIONS.map(r=>(
+            <div key={r.id} style={{textAlign:"center",fontSize:11,fontWeight:600,color:"rgba(255,255,255,.9)",lineHeight:1.4,padding:"2px 4px"}}>
+              {FLAG[r.flag]}<br/><span style={{fontSize:10,color:"rgba(255,255,255,.55)"}}>{r.short}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{overflowY:"auto",maxHeight:"calc(100vh - 285px)"}} className="scroll">
+          <div className="cat-section">RAM</div>
+          <PriceRow label="RAM GiB/h" bk="ram" arr={C.ram}/>
+          <div className="cat-section">Dedicated (frais acces /h)</div>
+          <PriceRow label="Acces FCU Dedicated /h" bk="ded_fee" arr={C.ded_fee}/>
+          <div className="cat-section">vCore (EUR/h)</div>
+          {Object.entries(C.vcore).map(([gen,perfs])=>
+            Object.entries(perfs).map(([perf,arr])=>(
+              <PriceRow key={`${gen}-${perf}`} label={`${gen} - ${perf}`} bk={`vcore__${gen}__${perf}`} arr={arr}/>
+            ))
+          )}
+          <div className="cat-section">GPU (EUR/h)</div>
+          {Object.entries(C.gpu).map(([name,arr])=>(
+            <PriceRow key={name} label={name} bk={`gpu__${name}`} arr={arr}/>
+          ))}
+          <div className="cat-section">OKS Control Plane (EUR/h)</div>
+          {Object.entries(C.oks).map(([name,arr])=>(
+            <PriceRow key={name} label={name} bk={`oks__${name}`} arr={arr}/>
+          ))}
+          <div className="cat-section">Stockage BSU (EUR/GiB/mois)</div>
+          {Object.entries(C.storage).map(([name,s])=>(
+            <React.Fragment key={name}>
+              <PriceRow label={`${name} - GiB`} bk={`stor_gb__${name}`} arr={s.gb}/>
+              {s.iops.some(v=>v>0)&&<PriceRow label={`${name} - IOPS`} bk={`stor_iops__${name}`} arr={s.iops}/>}
+            </React.Fragment>
+          ))}
+          <div className="cat-section">Stockage objet OOS (EUR/GiB/mois)</div>
+          <PriceRow label="OOS /GiB" bk="oos" arr={C.oos.gb}/>
+          <div className="cat-section">Reseau (EUR/h sauf DL)</div>
+          <PriceRow label="VPN IPsec /h"             bk="vpn"       arr={C.vpn}/>
+          <PriceRow label="NAT Gateway /h"            bk="nat"       arr={C.nat}/>
+          <PriceRow label="LBU /h"                    bk="lbu"       arr={C.lbu}/>
+          <PriceRow label="EIP /h"                    bk="eip"       arr={C.eip}/>
+          <PriceRow label="DirectLink setup"          bk="dl_setup"  arr={C.dl_setup}/>
+          <PriceRow label="DirectLink 1 Gbps /mois"   bk="dl_1g"     arr={C.dl_1gbps}/>
+          <PriceRow label="DirectLink 10 Gbps /mois"  bk="dl_10g"    arr={C.dl_10gbps}/>
+          <PriceRow label="HDL setup"                 bk="hdl_setup" arr={C.hdl_setup}/>
+          <PriceRow label="HDL 1 Gbps /mois"          bk="hdl_1g"    arr={C.hdl_1gbps}/>
+          <PriceRow label="HDL 10 Gbps /mois"         bk="hdl_10g"   arr={C.hdl_10gbps}/>
+          <div className="cat-section">Licences (EUR/h par unite)</div>
+          {Object.entries(C.lic).map(([name,l])=>(
+            <PriceRow key={name} label={name} bk={`lic__${name}`} arr={l.price}/>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Page d'aide ── */
+function HelpPage(){
+  return(
+    <div className="card help fade-in" style={{maxWidth:900,margin:"0 auto",padding:"24px 32px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <div style={{width:42,height:42,background:"var(--os-blue)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:22,flexShrink:0}}>?</div>
+        <div><h1 style={{margin:0,fontSize:22,color:"var(--os-blue-dark)"}}>Guide d'utilisation</h1><p style={{margin:0,color:"var(--text-muted)",fontSize:12.5}}>Outscale Cloud Estimator - catalogue v57 - mars 2025</p></div>
+      </div>
+      <div className="info-banner" style={{marginBottom:16}}>Estimation indicative basee sur les tarifs publics 3DS OUTSCALE. Pour un devis officiel : <a href="https://fr.outscale.com/contactez-nous/" target="_blank" rel="noreferrer">fr.outscale.com/contactez-nous</a></div>
+
+      <h2>Navigation</h2>
+      <table><thead><tr><th>Onglet</th><th>Description</th></tr></thead><tbody>
+        <tr><td>Cote a cote</td><td>Saisie et synthese simultanees.</td></tr>
+        <tr><td>Saisie</td><td>Formulaire seul pour configurer les ressources.</td></tr>
+        <tr><td>Synthese</td><td>Tableau croise, comparaison regionale et engagement.</td></tr>
+        <tr><td>Tarifs</td><td>Grille tarifaire complete, edition manuelle, synchronisation en ligne.</td></tr>
+        <tr><td>Aide</td><td>Ce guide.</td></tr>
+      </tbody></table>
+
+      <h2>Regions</h2>
+      <table><thead><tr><th>ID</th><th>Zone</th><th>Notes</th></tr></thead><tbody>
+        <tr><td><span className="code">eu-west-2</span></td><td>France</td><td>Reference tarifaire.</td></tr>
+        <tr><td><span className="code">cloudgouv-eu-west-1</span></td><td>Souverain</td><td>+20% compute/GPU/reseau. OKS disponible.</td></tr>
+        <tr><td><span className="code">us-west-1</span></td><td>US Ouest</td><td>Certains GPU indisponibles. OKS non disponible.</td></tr>
+        <tr><td><span className="code">us-east-2</span></td><td>US Est</td><td>vCores legerement moins chers.</td></tr>
+        <tr><td><span className="code">ap-northeast-1</span></td><td>Japon</td><td>Trafic sortant facture. Tarifs specifiques reseau.</td></tr>
+      </tbody></table>
+
+      <h2>Types de ressources</h2>
+      <h3>VM (FCU)</h3>
+      <p>Formule : (vCores x tarif_vCore + RAM x tarif_RAM) x qte x 730h x usage x (1 - remise). VM dediee = +10%.</p>
+      <h3>GPU flexible</h3>
+      <p>Remise RI plafonnee a 30%, meme pour un engagement 3 ans.</p>
+      <h3>OKS</h3>
+      <p>Disponible uniquement en eu-west-2 et cloudgouv-eu-west-1.</p>
+      <h3>BSU / OOS</h3>
+      <p>Facturation mensuelle au GiB. BSU Enterprise (io1) : IOPS provisionnees facturees en plus.</p>
+      <h3>Reseau</h3>
+      <p>VPN / LBU / NAT / EIP : tarif horaire x 730h. DirectLink : abonnement mensuel + frais de mise en service one-shot.</p>
+
+      <h2>Scenarios RI</h2>
+      <table><thead><tr><th>ID</th><th>Duree</th><th>Paiement</th><th>Remise</th></tr></thead>
+      <tbody>{ENGAGEMENTS.map(e=>(
+        <tr key={e.id}>
+          <td><span className="code" style={{fontSize:11}}>{e.id}</span></td>
+          <td>{e.id==="on-demand"?"...":e.id.includes("1m")?"1 mois":e.id.includes("1y")?"1 an":e.id.includes("2y")?"2 ans":"3 ans"}</td>
+          <td>{e.id==="on-demand"?"...":e.id.includes("upfront")?"Upfront":e.id.includes("quarterly")?"Trimestriel":"Annuel"}</td>
+          <td className="mono" style={{color:"var(--ok)"}}>{e.d>0?`-${(e.d*100).toFixed(0)}%`:"0%"}</td>
+        </tr>
+      ))}</tbody></table>
+
+      <h2>Mise a jour des tarifs</h2>
+      <p>L'onglet Tarifs permet :</p>
+      <ul>
+        <li><strong>Edition manuelle</strong> : cliquez sur une valeur, modifiez, cliquez Appliquer. Cellules modifiees = orange, enregistrees = vert.</li>
+        <li><strong>Recuperation en ligne</strong> : le bouton interroge fr.outscale.com/tarifs/ via l'API Claude et met a jour toutes les valeurs disponibles.</li>
+        <li><strong>Reinitialisation</strong> : restaure les valeurs v57 (mars 2025).</li>
+      </ul>
+
+      <h2>Import / Export JSON</h2>
+      <p>Le fichier exporte inclut les lignes ET le catalogue de tarifs actif. Il est donc autoportant et peut etre versionne (Git) ou partage.</p>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   APP
+══════════════════════════════════════════════════════════════════ */
+function App(){
+  const [lines,setLines]=useState([]);
+  const [region,setRegion]=useState("eu-west-2");
+  const [tab,setTab]=useState("split");
+  const [C,setC]=useState(()=>JSON.parse(JSON.stringify(DEFAULT_C)));
+  const [loaded,setLoaded]=useState(false);
+  const [filter,setFilter]=useState("");
+  const [fetchStatus,setFetchStatus]=useState("idle");
+  const [lastFetch,setLastFetch]=useState(null);
+  const fileRef=useRef(null);
+
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const rr=await window.storage.get("outscale:region");if(rr?.value)setRegion(rr.value);
+        const rc=await window.storage.get("outscale:catalog");if(rc?.value)setC(JSON.parse(rc.value));
+        const rl=await window.storage.get("outscale:lines");if(rl?.value)setLines(JSON.parse(rl.value));else setLines(DEMO);
+        const rf=await window.storage.get("outscale:lastFetch");if(rf?.value)setLastFetch(rf.value);
+      }catch{setLines(DEMO);}
+      setLoaded(true);
+    })();
+  },[]);
+  useEffect(()=>{if(!loaded)return;(async()=>{try{await window.storage.set("outscale:region",region);}catch{}})();},[region,loaded]);
+  useEffect(()=>{if(!loaded)return;(async()=>{try{await window.storage.set("outscale:catalog",JSON.stringify(C));}catch{}})();},[C,loaded]);
+  useEffect(()=>{if(!loaded)return;(async()=>{try{await window.storage.set("outscale:lines",JSON.stringify(lines.map(({_open,...r})=>r)));}catch{}})();},[lines,loaded]);
+
+  const results=useMemo(()=>lines.map(l=>calcLine(l,C,region)),[lines,C,region]);
+  const totalM=useMemo(()=>results.reduce((s,r)=>s+r.monthly,0),[results]);
+
+  const updLine=useCallback((id,nl)=>setLines(ls=>ls.map(l=>l.id===id?nl:l)),[]);
+  const delLine=useCallback((id)=>setLines(ls=>ls.filter(l=>l.id!==id)),[]);
+  const dupLine=useCallback((id)=>setLines(ls=>{const s=ls.find(l=>l.id===id);return s?[...ls,{...s,id:UID(),desc:(s.desc||"")+" (copie)",_open:true}]:ls;}),[]);
+  const addLine=useCallback((l)=>setLines(ls=>[...ls,l]),[]);
+
+  const exportJson=()=>{
+    const blob=new Blob([JSON.stringify({lines:lines.map(({_open,...r})=>r),catalog:C},null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="outscale-estimation.json";a.click();URL.revokeObjectURL(url);
+  };
+  const importJson=(file)=>{
+    const rd=new FileReader();
+    rd.onload=()=>{try{const d=JSON.parse(rd.result);if(d.lines)setLines(d.lines.map(x=>({...x,id:x.id||UID()})));if(d.catalog)setC(d.catalog);}catch{alert("JSON invalide.");}};
+    rd.readAsText(file);
+  };
+
+  /* FETCH TARIFS via API Claude avec web_search */
+  const fetchPricing=async()=>{
+    setFetchStatus("loading");
+    try{
+      const PROMPT=`Tu es un extracteur de donnees de tarification cloud.
+Utilise l'outil web_search pour recuperer le contenu de https://fr.outscale.com/tarifs/ puis extrait tous les tarifs.
+
+Reponds UNIQUEMENT avec un objet JSON valide (aucun texte avant ou apres, pas de backticks markdown) respectant exactement ce schema :
+L'ordre des 5 regions est TOUJOURS: eu-west-2, cloudgouv-eu-west-1, us-west-1, us-east-2, ap-northeast-1.
+Si un prix est N/A ou non disponible: utilise 0. Nombres flottants uniquement (ex: 0.038 pas "0,038").
+
+{"ram":[5 valeurs],"ded_fee":[5 valeurs],"vcore":{"v7":{"medium":[5],"high":[5],"highest":[5]},"v6":{"medium":[5],"high":[5],"highest":[5]},"v5":{"medium":[5],"high":[5],"highest":[5]},"v4":{"medium":[5],"high":[5],"highest":[5]},"v3":{"medium":[5],"high":[5],"highest":[5]},"v2":{"medium":[5],"high":[5],"highest":[5]},"v1":{"medium":[5],"high":[5],"highest":[5]}},"gpu":{"Nvidia K2":[5],"Nvidia P6":[5],"Nvidia P100":[5],"Nvidia V100":[5],"Nvidia A100-40":[5],"Nvidia A100-80":[5],"Nvidia A10":[5],"Nvidia L40":[5],"Nvidia H100":[5],"Nvidia H200":[5]},"oks":{"cp.mono.master":[5],"cp.3.masters.small":[5],"cp.3.masters.medium":[5],"cp.3.masters.large":[5]},"storage":{"BSU Magnetic (standard)":{"gb":[5],"iops":[0,0,0,0,0]},"BSU Performance (gp2)":{"gb":[5],"iops":[0,0,0,0,0]},"BSU Enterprise (io1)":{"gb":[5],"iops":[5]},"Snapshots":{"gb":[5],"iops":[0,0,0,0,0]}},"oos":{"gb":[5]},"vpn":[5],"nat":[5],"lbu":[5],"eip":[5],"dl_setup":[5],"dl_1gbps":[5],"dl_10gbps":[5],"hdl_setup":[5],"hdl_1gbps":[5],"hdl_10gbps":[5],"lic":{"Windows Server 2019/2022 (pack 2 coeurs - jusqu'a 2 VMs)":{"base":"h","price":[5]},"Microsoft SQL Server 2019 - Web Edition (pack 2 coeurs)":{"base":"h","price":[5]},"Microsoft SQL Server 2019 - Standard (pack 2 coeurs)":{"base":"h","price":[5]},"Microsoft SQL Server 2019 - Enterprise (pack 2 coeurs)":{"base":"h","price":[5]},"Red Hat Enterprise Linux (1 licence par vCore)":{"base":"h","price":[5]},"Oracle Linux OS (par VM)":{"base":"h","price":[5]},"Red Hat Enterprise Linux OS (par VM)":{"base":"h","price":[5]},"Windows 10 E3 VDA (par VM)":{"base":"h","price":[5]}}}`;
+
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:3000,
+          tools:[{type:"web_search_20250305",name:"web_search"}],
+          messages:[{role:"user",content:PROMPT}]
+        })
+      });
+      const data=await resp.json();
+      if(!resp.ok)throw new Error(data.error?.message||"API error");
+
+      const text=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n");
+      const clean=text.replace(/```json\s*/gi,"").replace(/```\s*/gi,"").trim();
+      
+      // Trouver le JSON dans la reponse
+      const jsonStart=clean.indexOf("{");
+      const jsonEnd=clean.lastIndexOf("}");
+      if(jsonStart===-1||jsonEnd===-1)throw new Error("No JSON found");
+      const parsed=JSON.parse(clean.slice(jsonStart,jsonEnd+1));
+
+      // Merger deep
+      const merge=(target,src)=>{
+        for(const k of Object.keys(src)){
+          if(typeof src[k]==="object"&&!Array.isArray(src[k])&&src[k]!==null){
+            if(!target[k])target[k]={};
+            merge(target[k],src[k]);
+          }else{target[k]=src[k];}
+        }
+      };
+      const merged=JSON.parse(JSON.stringify(C));
+      merge(merged,parsed);
+      setC(merged);
+      const now=new Date().toLocaleString("fr-FR");
+      setLastFetch(now);
+      await window.storage.set("outscale:lastFetch",now);
+      setFetchStatus("ok");
+      setTimeout(()=>setFetchStatus("idle"),10000);
+    }catch(e){
+      console.error("Fetch pricing error:",e);
+      setFetchStatus("error");
+      setTimeout(()=>setFetchStatus("idle"),8000);
+    }
+  };
+
+  const filtered=filter?lines.filter(l=>(filter==="compute"?(l.type==="compute"||l.type==="dedicated-access"):l.type===filter)):lines;
+
+  if(!loaded)return<div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"var(--text-muted)"}}>Chargement...</div>;
+
+  return(
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+      <header className="hdr">
+        <div className="hdr-inner">
+          <div className="logo-wrap">
+            <div style={{display:"flex",alignItems:"center",gap:8}}>
+              {/* Logo officiel chargé depuis le CDN Outscale, avec fallback SVG */}
+              <img
+                src="https://outscale-1eecc.kxcdn.com/wp-content/uploads/2024/01/Logo-OUTSCALE-blanc.svg"
+                alt="OUTSCALE"
+                height="26"
+                style={{display:"block"}}
+                onError={(e)=>{
+                  e.currentTarget.replaceWith((() => {
+                    const s = document.createElementNS('http://www.w3.org/2000/svg','svg');
+                    s.setAttribute('viewBox','0 0 210 38');
+                    s.setAttribute('height','28');
+                    s.innerHTML = '<text x="0" y="28" font-family="Arial Black,Arial,sans-serif" font-weight="900" font-size="26" letter-spacing="2.5" fill="white">OUTSCALE</text><path d="M183 3 C192 3 207 10 207 19 C207 28 192 35 183 35" stroke="#f47920" stroke-width="5" fill="none" stroke-linecap="round"/>';
+                    return s;
+                  })());
+                }}
+              />
+            </div>
+            <div style={{marginTop:1}}>
+              <div className="logo-text-sub">Cloud Estimator</div>
+            </div>
+          </div>
+
+          <div className="vdiv"/>
+
+          <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+            <span style={{fontSize:10,color:"rgba(255,255,255,.4)",textTransform:"uppercase",letterSpacing:".06em",marginRight:4}}>Region</span>
+            {REGIONS.map(r=>(
+              <button key={r.id} className={"reg-btn"+(region===r.id?" on":"")} onClick={()=>setRegion(r.id)} title={r.name}>
+                {FLAG[r.flag]} {r.short}
+              </button>
+            ))}
+          </div>
+
+          <div style={{flex:1}}/>
+
+          <nav className="nav-tabs">
+            <div className={"ntab"+(tab==="split"?" on":"")}  onClick={()=>setTab("split")}>Cote a cote</div>
+            <div className={"ntab"+(tab==="input"?" on":"")}  onClick={()=>setTab("input")}>Saisie</div>
+            <div className={"ntab"+(tab==="view"?" on":"")}   onClick={()=>setTab("view")}>Synthese</div>
+            <div className={"ntab"+(tab==="catalog"?" on":"")} onClick={()=>setTab("catalog")}>Tarifs</div>
+            <div className={"ntab"+(tab==="help"?" on":"")}   onClick={()=>setTab("help")}>Aide</div>
+          </nav>
+
+          <div className="vdiv"/>
+
+          <div style={{display:"flex",gap:5,flexShrink:0}}>
+            <input ref={fileRef} type="file" accept="application/json" style={{display:"none"}} onChange={e=>{if(e.target.files[0])importJson(e.target.files[0]);}}/>
+            <button className="io-btn" onClick={()=>fileRef.current.click()}>Importer</button>
+            <button className="io-btn" onClick={exportJson}>Exporter</button>
+          </div>
+        </div>
+      </header>
+
+      <main style={{flex:1,maxWidth:1760,width:"100%",margin:"0 auto",padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
+
+        {tab!=="help"&&tab!=="catalog"&&(
+          <div className="warn-banner">
+            <strong>Estimation indicative HT</strong> - Tarifs Outscale {lastFetch?`(sync. ${lastFetch})`:"(v57, mars 2025)"} - region <strong>{region}</strong>.
+            <a href="https://fr.outscale.com/tarifs/" target="_blank" rel="noreferrer" style={{marginLeft:8,color:"#7c3700"}}>Tarifs officiels</a>
+          </div>
+        )}
+
+        {tab==="help"&&<HelpPage/>}
+        {tab==="catalog"&&<CatalogPage C={C} onUpdate={setC} fetchStatus={fetchStatus} onFetch={fetchPricing} lastFetch={lastFetch}/>}
+
+        {(tab==="split"||tab==="input"||tab==="view")&&(
+          <div style={{display:"grid",gridTemplateColumns:tab==="split"?"1fr 1fr":"1fr",gap:14,alignItems:"start"}}>
+
+            {(tab==="split"||tab==="input")&&(
+              <div className="card">
+                <div className="phdr">
+                  <div>
+                    <div className="slbl">Hypotheses de consommation</div>
+                    <div className="stitle">Ressources consommees</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div className="mono" style={{fontSize:18,fontWeight:700,color:"var(--os-orange-dark)"}}>{fE(totalM)}</div>
+                    <div style={{fontSize:10,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:".05em"}}>/mois</div>
+                  </div>
+                </div>
+
+                <div style={{display:"flex",flexWrap:"wrap",gap:4,padding:"8px 14px",borderBottom:"1px solid var(--border)",alignItems:"center"}}>
+                  <span style={{fontSize:11,color:"var(--text-muted)",marginRight:2}}>Afficher :</span>
+                  <button className={"btn xs"+(filter===""?" blue":"")} onClick={()=>setFilter("")}>Tout ({lines.length})</button>
+                  {[{id:"compute",l:"Compute"},{id:"gpu",l:"GPU"},{id:"oks",l:"OKS"},{id:"bsu",l:"BSU"},{id:"oos",l:"OOS"},{id:"net",l:"Reseau"},{id:"lic",l:"Licences"}].map(f=>{
+                    const n=lines.filter(l=>(f.id==="compute"?(l.type==="compute"||l.type==="dedicated-access"):l.type===f.id)).length;
+                    if(!n)return null;
+                    return<button key={f.id} className={"btn xs"+(filter===f.id?" blue":"")} onClick={()=>setFilter(filter===f.id?"":f.id)}>{f.l} ({n})</button>;
+                  })}
+                  <div style={{flex:1}}/>
+                  <button className="btn xs ghost" onClick={()=>{if(confirm("Charger les donnees de demo ?"))setLines(DEMO);}}>Demo</button>
+                  <button className="btn xs ghost danger" onClick={()=>{if(confirm("Supprimer toutes les lignes ?"))setLines([]);}}>Vider</button>
+                </div>
+
+                <div style={{padding:10,maxHeight:"calc(100vh - 265px)",overflowY:"auto"}} className="scroll">
+                  {filtered.length===0?(
+                    <div style={{textAlign:"center",padding:"28px 0",color:"var(--text-muted)"}}>
+                      <div style={{fontSize:34,marginBottom:6}}>0</div>
+                      <div style={{fontSize:13}}>Aucune ressource{filter?" dans cette categorie":""}.</div>
+                    </div>
+                  ):filtered.map(l=>(
+                    <LineEditor key={l.id} line={l} C={C} regionId={region}
+                      onChange={nl=>updLine(l.id,nl)}
+                      onDelete={()=>delLine(l.id)}
+                      onDuplicate={()=>dupLine(l.id)}/>
+                  ))}
+                  <div style={{marginTop:6}}><AddMenu onAdd={addLine} C={C}/></div>
+                </div>
+              </div>
+            )}
+
+            {(tab==="split"||tab==="view")&&(
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <PivotTable lines={lines} results={results} regionId={region}/>
+                <div className="card">
+                  <div className="phdr"><div><div className="slbl">Analyse</div><div className="stitle">Par engagement</div></div></div>
+                  <div style={{padding:10}}><EngBreakdown lines={lines} results={results}/></div>
+                </div>
+                <div className="card">
+                  <div className="phdr">
+                    <div><div className="slbl">Toutes regions</div><div className="stitle">Comparaison regionale</div></div>
+                    <span className="tag tblue">{FLAG[REGIONS.find(r=>r.id===region)?.flag]} {region}</span>
+                  </div>
+                  <div style={{padding:"12px 16px"}}><RegionComp lines={lines} C={C}/></div>
+                  <div style={{padding:"0 16px 12px",fontSize:11,color:"var(--text-muted)"}}>Meme configuration, tarifs de chaque region avec le catalogue actif.</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <footer style={{borderTop:"1px solid var(--border)",paddingTop:10,display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--text-muted)"}}>
+          <span>Outscale Cloud Estimator - base sur outscale_cloud_calculator_v57.xlsx - <a href="https://fr.outscale.com/tarifs/" target="_blank" rel="noreferrer">fr.outscale.com/tarifs</a>{lastFetch?` - sync. ${lastFetch}`:""}</span>
+          <span className="mono">{lines.length} ligne{lines.length!==1?"s":""} - {region}</span>
+        </footer>
+      </main>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
