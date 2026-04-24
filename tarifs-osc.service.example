@@ -1,0 +1,20 @@
+[Unit]
+Description=Outscale Cloud Estimateur — Backend API
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/html/tarifs-osc
+ExecStart=/var/www/html/tarifs-osc/.venv/bin/python3 api/server.py
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+
+# Installation :
+#   sudo cp tarifs-osc.service.example /etc/systemd/system/tarifs-osc.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now tarifs-osc

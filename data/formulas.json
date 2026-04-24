@@ -1,0 +1,20 @@
+{
+  "_meta": {
+    "version": 1,
+    "updated_at": "2026-04-23T00:00:00Z",
+    "updated_by": "init",
+    "comment": "Formules d'engagement RI extraites du fichier HTML d'origine"
+  },
+  "engagements": [
+    { "id": "on-demand",       "label": "A la demande",                  "discount": 0.00, "active": true },
+    { "id": "ri-1m-upfront",   "label": "RI 1 mois upfront (-30%)",      "discount": 0.30, "active": true },
+    { "id": "ri-1y-upfront",   "label": "RI 1 an upfront (-40%)",        "discount": 0.40, "active": true },
+    { "id": "ri-2y-upfront",   "label": "RI 2 ans upfront (-50%)",       "discount": 0.50, "active": true },
+    { "id": "ri-3y-upfront",   "label": "RI 3 ans upfront (-60%)",       "discount": 0.60, "active": true },
+    { "id": "ri-1y-quarterly", "label": "RI 1 an trimestriel (-37%)",    "discount": 0.37, "active": true },
+    { "id": "ri-2y-quarterly", "label": "RI 2 ans trimestriel (-45%)",   "discount": 0.45, "active": true },
+    { "id": "ri-3y-quarterly", "label": "RI 3 ans trimestriel (-53%)",   "discount": 0.53, "active": true },
+    { "id": "ri-2y-yearly",    "label": "RI 2 ans annuel (-48%)",        "discount": 0.48, "active": true },
+    { "id": "ri-3y-yearly",    "label": "RI 3 ans annuel (-56%)",        "discount": 0.56, "active": true }
+  ]
+}

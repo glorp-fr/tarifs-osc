@@ -1,0 +1,6 @@
+data/config.json
+data/history/
+.venv/
+__pycache__/
+*.pyc
+.env

@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "version": 1,
+    "updated_at": "2026-04-23T00:00:00Z",
+    "updated_by": "init",
+    "comment": "Régions Outscale — l'ordre détermine l'index dans les tableaux de prix"
+  },
+  "regions": [
+    { "id": "eu-west-2",           "flag": "FR", "short": "EU-W2",  "name": "Europe Ouest (France)",        "active": true },
+    { "id": "cloudgouv-eu-west-1", "flag": "FR", "short": "GOUV",   "name": "Cloud Souverain (France)",     "active": true },
+    { "id": "us-west-1",           "flag": "US", "short": "US-W1",  "name": "US Ouest",                     "active": true },
+    { "id": "us-east-2",           "flag": "US", "short": "US-E2",  "name": "US Est",                       "active": true },
+    { "id": "ap-northeast-1",      "flag": "JP", "short": "AP-NE1", "name": "Asie (Japon)",                 "active": true }
+  ]
+}

@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>OUTSCALE — Estimateur budgétaire cloud</title>
+<link rel="icon" type="image/png" href="/assets/favicon.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Open+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/style.css">
+<script src="/assets/js/calc.js"></script>
+<script src="/assets/js/api.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState, useEffect, useMemo, useRef, useCallback, createContext, useContext} = React;
+const {GROUPS, BLABELS, BCLS, FLAG, HPM, UID, fE, fp, CPUGENS, PERF_OPTS, NET_OPTS, DEMO, calcLine} = OSCalc;
+
+/* ── Contexte global ── */
+const AppCtx = createContext({ regions: [], engagements: [], catalog: null, activeRegions: [] });
+
+/* ── Composants de base ── */
+function Bdg({type}) {
+  return <span className={"bdg "+(BCLS[type]||"b-comp")}>{BLABELS[type]||type}</span>;
+}
+
+function Fld({label, children, hint, w2}) {
+  return <div className={w2?"col-span-2":""}>
+    <div className="lbl">{label}</div>{children}
+    {hint && <div style={{fontSize:11,color:"var(--text-muted)",marginTop:2}}>{hint}</div>}
+  </div>;
+}
+
+function Sel({value, onChange, options, placeholder}) {
+  return <select className="sel" value={value||""} onChange={e=>onChange(e.target.value)}>
+    {placeholder && <option value="">{placeholder}</option>}
+    {options.map(o => typeof o==="string"
+      ? <option key={o} value={o}>{o}</option>
+      : <option key={o.v} value={o.v}>{o.l}</option>)}
+  </select>;
+}
+
+function Num({value, onChange, min=0, step=1}) {
+  return <input type="number" className="inp mono" min={min} step={step} value={value??""}
+    onChange={e => onChange(e.target.value===""?"":Number(e.target.value))}/>;
+}
+
+/* ── LineEditor ── */
+function LineEditor({line, onChange, onDelete, onDuplicate, C}) {
+  const {regions, engagements, activeRegions} = useContext(AppCtx);
+  const [open, setOpen] = useState(line._open||false);
+  const u = (k, v) => onChange({...line, [k]:v});
+  const regionId = line.region_id || activeRegions[0] || "eu-west-2";
+  const r = useMemo(() => calcLine(line, C, regionId, regions, engagements), [line, C, regionId, regions, engagements]);
+
+  const engOpts    = engagements.map(e => ({v:e.id, l:e.label}));
+  const STOR_OPTS  = Object.keys(C.storage||{});
+  const GPU_OPTS   = Object.keys(C.gpu||{});
+  const OKS_OPTS   = Object.keys(C.oks||{});
+  const LIC_OPTS   = Object.keys(C.lic||{});
+  const gpuCap     = C.gpu_ri_cap ?? 0.30;
+
+  const regionOpts = useMemo(() => {
+    const opts = activeRegions.map(id => {
+      const reg = regions.find(r => r.id===id);
+      return {v:id, l:`${FLAG[reg?.flag]||""} ${id}`};
+    });
+    if (line.region_id && !activeRegions.includes(line.region_id)) {
+      const reg = regions.find(r => r.id===line.region_id);
+      opts.unshift({v:line.region_id, l:`⚠ ${FLAG[reg?.flag]||""} ${line.region_id}`});
+    }
+    return opts;
+  }, [activeRegions, regions, line.region_id]);
+
+  const regInfo = regions.find(r => r.id===regionId);
+
+  const fields = () => {
+    switch (line.type) {
+      case "compute": return (<>
+        <Fld label="Qte VMs"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
+        <Fld label="vCores/VM"><Num value={line.vcore} onChange={v=>u("vcore",v)}/></Fld>
+        <Fld label="RAM GiB/VM"><Num value={line.ram} onChange={v=>u("ram",v)}/></Fld>
+        <Fld label="Generation"><Sel value={line.cpu_gen} onChange={v=>u("cpu_gen",v)} options={CPUGENS}/></Fld>
+        <Fld label="Performance"><Sel value={line.perf} onChange={v=>u("perf",v)} options={PERF_OPTS}/></Fld>
+        <Fld label="Usage" hint="0-1 (1=100%)"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={engOpts}/></Fld>
+        <Fld label="VM dediee"><Sel value={line.dedicated?"y":"n"} onChange={v=>u("dedicated",v==="y")} options={[{v:"n",l:"Non"},{v:"y",l:"Oui (+10%)"}]}/></Fld>
+        <Fld label="Stockage BSU" w2><Sel value={line.storage_type||""} onChange={v=>u("storage_type",v)} placeholder="Aucun" options={STOR_OPTS}/></Fld>
+        {line.storage_type && <>
+          <Fld label="GiB"><Num value={line.storage_gb} onChange={v=>u("storage_gb",v)}/></Fld>
+          <Fld label="IOPS (io1)"><Num value={line.iops} onChange={v=>u("iops",v)}/></Fld>
+        </>}
+      </>);
+      case "dedicated-access": return (<>
+        <Fld label="Qte acces"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
+        <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={engOpts}/></Fld>
+      </>);
+      case "gpu": return (<>
+        <Fld label="Nb GPUs"><Num value={line.gpu_qty} onChange={v=>u("gpu_qty",v)} min={1}/></Fld>
+        <Fld label="Type GPU"><Sel value={line.gpu_type} onChange={v=>u("gpu_type",v)} options={GPU_OPTS}/></Fld>
+        <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={engOpts}/></Fld>
+        <div className="col-span-2"><div className="warn-banner">Remise RI plafonnee a {Math.round(gpuCap*100)}% sur les GPU.</div></div>
+      </>);
+      case "oks": return (<>
+        <Fld label="Nb plans"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
+        <Fld label="Type" w2><Sel value={line.cp} onChange={v=>u("cp",v)} options={OKS_OPTS}/></Fld>
+        <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
+        <Fld label="Engagement"><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={engOpts}/></Fld>
+      </>);
+      case "bsu": return (<>
+        <Fld label="Nb volumes"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
+        <Fld label="Type" w2><Sel value={line.storage_type} onChange={v=>u("storage_type",v)} options={STOR_OPTS}/></Fld>
+        <Fld label="GiB/vol"><Num value={line.storage_gb} onChange={v=>u("storage_gb",v)}/></Fld>
+        <Fld label="IOPS (io1)"><Num value={line.iops} onChange={v=>u("iops",v)}/></Fld>
+      </>);
+      case "oos": return (<>
+        <Fld label="GiB"><Num value={line.storage_gb} onChange={v=>u("storage_gb",v)}/></Fld>
+      </>);
+      case "net": return (<>
+        <Fld label="Service reseau" w2><Sel value={line.net_type} onChange={v=>u("net_type",v)} options={NET_OPTS}/></Fld>
+        <Fld label="Quantite"><Num value={line.net_qty} onChange={v=>u("net_qty",v)} min={0}/></Fld>
+      </>);
+      case "lic": return (<>
+        <Fld label="Type licence" w2><Sel value={line.lic_type} onChange={v=>u("lic_type",v)} options={LIC_OPTS}/></Fld>
+        <Fld label="Nb licences"><Num value={line.lic_qty} onChange={v=>u("lic_qty",v)} min={0}/></Fld>
+      </>);
+    }
+  };
+
+  return (
+    <div className="acc">
+      <div className="acc-hd" onClick={()=>setOpen(!open)}>
+        <span className={"caret"+(open?" o":"")}>&#9658;</span>
+        <Bdg type={line.type}/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {line.desc||<em style={{color:"var(--text-muted)"}}>Sans description</em>}
+          </div>
+          <div className="mono" style={{fontSize:11,color:"var(--text-muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+            {FLAG[regInfo?.flag]} {regionId} — {r.detail}
+          </div>
+        </div>
+        <div style={{textAlign:"right",flexShrink:0}}>
+          <div className="mono" style={{fontSize:14,fontWeight:700,color:"var(--os-blue-dark)"}}>{fE(r.monthly,2)}</div>
+          <div style={{fontSize:10,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:".05em"}}>/mois</div>
+        </div>
+      </div>
+      {open && <div className="acc-bd">
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
+          <Fld label="Description" w2>
+            <input className="inp" value={line.desc||""} onChange={e=>u("desc",e.target.value)} placeholder="Nom descriptif"/>
+          </Fld>
+          <Fld label="Region" w2>
+            <Sel value={regionId} onChange={v=>u("region_id",v)} options={regionOpts}/>
+          </Fld>
+          {fields()}
+        </div>
+        <div style={{display:"flex",justifyContent:"flex-end",gap:6,marginTop:10}}>
+          <button className="btn sm ghost" onClick={onDuplicate}>Dupliquer</button>
+          <button className="btn sm ghost danger" onClick={onDelete}>Supprimer</button>
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+/* ── AddMenu ── */
+function AddMenu({onAdd, C}) {
+  const {activeRegions} = useContext(AppCtx);
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+  const firstLic = Object.keys(C.lic||{})[0]||"";
+  const defaultRegion = activeRegions[0] || "eu-west-2";
+  const presets = [
+    {type:"compute",          label:"VM (FCU)",            def:{qty:1,cpu_gen:"v7",vcore:4,ram:16,perf:"high",engagement:"on-demand",dedicated:false,usage:1}},
+    {type:"dedicated-access", label:"Acces FCU Dedicated", def:{qty:1,engagement:"on-demand",usage:1}},
+    {type:"gpu",              label:"Flexible GPU",        def:{gpu_qty:1,gpu_type:"Nvidia H100",engagement:"on-demand",usage:1}},
+    {type:"oks",              label:"OKS Control Plane",   def:{qty:1,cp:"cp.3.masters.small",engagement:"on-demand",usage:1}},
+    {type:"bsu",              label:"Volume BSU",          def:{qty:1,storage_type:"BSU Performance (gp2)",storage_gb:100,iops:0}},
+    {type:"oos",              label:"Stockage objet OOS",  def:{storage_gb:100}},
+    {type:"net",              label:"Service reseau",      def:{net_type:"LBU ( / h)",net_qty:1}},
+    {type:"lic",              label:"Licence",             def:{lic_type:firstLic,lic_qty:1}},
+  ];
+  return (
+    <div style={{position:"relative"}} ref={ref}>
+      <button className="btn orange" style={{width:"100%",justifyContent:"center"}} onClick={()=>setOpen(!open)}>
+        + Ajouter une ressource
+      </button>
+      {open && <div className="card" style={{position:"absolute",zIndex:40,bottom:"calc(100% + 6px)",left:0,right:0,padding:4}}>
+        {presets.map(p => (
+          <button key={p.type}
+            style={{width:"100%",textAlign:"left",display:"flex",alignItems:"center",gap:9,padding:"8px 10px",borderRadius:6,border:"none",background:"transparent",cursor:"pointer",transition:"background .1s",fontFamily:"inherit"}}
+            onMouseEnter={e=>e.currentTarget.style.background="var(--panel-2)"}
+            onMouseLeave={e=>e.currentTarget.style.background="transparent"}
+            onClick={()=>{onAdd({id:UID(),type:p.type,desc:"",_open:true,region_id:defaultRegion,...p.def});setOpen(false);}}>
+            <Bdg type={p.type}/><span style={{fontSize:13}}>{p.label}</span>
+          </button>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
+/* ── PivotTable ── */
+function PivotTable({lines, results}) {
+  const {regions} = useContext(AppCtx);
+  const [exp, setExp] = useState({});
+  const [hz, setHz]   = useState("monthly");
+
+  /* Group lines by region, then by resource type */
+  const byRegion = useMemo(() => {
+    const rmap = {};
+    lines.forEach((l, i) => {
+      const rid = l.region_id || "?";
+      if (!rmap[rid]) rmap[rid] = {rid, monthly:0, yearly:0, three_year:0, grps:{}};
+      const r = results[i];
+      rmap[rid].monthly    += r.monthly;
+      rmap[rid].yearly     += r.yearly;
+      rmap[rid].three_year += r.three_year;
+      const gid = r.group;
+      if (!rmap[rid].grps[gid]) {
+        const gd = GROUPS.find(g => g.id===gid)||{id:gid,label:gid,bc:"b-comp"};
+        rmap[rid].grps[gid] = {...gd, monthly:0, yearly:0, three_year:0, items:[]};
+      }
+      rmap[rid].grps[gid].items.push({line:l, r});
+      rmap[rid].grps[gid].monthly    += r.monthly;
+      rmap[rid].grps[gid].yearly     += r.yearly;
+      rmap[rid].grps[gid].three_year += r.three_year;
+    });
+    /* Order by regions array, unknown regions appended at end */
+    const ordered = regions.filter(reg => rmap[reg.id]).map(reg => ({
+      ...reg, ...rmap[reg.id],
+      grps: GROUPS.filter(g => rmap[reg.id].grps[g.id]).map(g => rmap[reg.id].grps[g.id]),
+    }));
+    /* Unknown region_id not in regions list */
+    Object.keys(rmap).filter(rid => !regions.find(r => r.id===rid)).forEach(rid => {
+      ordered.push({id:rid, name:rid, flag:"", ...rmap[rid],
+        grps: GROUPS.filter(g => rmap[rid].grps[g.id]).map(g => rmap[rid].grps[g.id])});
+    });
+    return ordered;
+  }, [lines, results, regions]);
+
+  const tot = useMemo(() => byRegion.reduce((a,r) => ({
+    monthly:    a.monthly    + r.monthly,
+    yearly:     a.yearly     + r.yearly,
+    three_year: a.three_year + r.three_year,
+  }), {monthly:0,yearly:0,three_year:0}), [byRegion]);
+
+  const multiRegion = byRegion.length > 1;
+
+  return (
+    <div className="card">
+      {/* KPI bar */}
+      {multiRegion ? (
+        <div style={{display:"grid",gridTemplateColumns:`repeat(${byRegion.length},1fr) 1fr`,borderBottom:"1px solid var(--border)"}}>
+          {byRegion.map((reg,i) => (
+            <div key={reg.id} className="kpi" style={{borderRight:"1px solid var(--border)"}}>
+              <div className="lbl">{FLAG[reg.flag]||""} {reg.id}</div>
+              <div className="kpi-v" style={{fontSize:20,color:"var(--os-blue-dark)"}}>{fE(reg.monthly)}</div>
+              <div style={{fontSize:11,color:"var(--text-muted)",marginTop:3}}>
+                {reg.items ? reg.items.length : lines.filter(l=>(l.region_id||"?")==reg.id).length} ligne{lines.filter(l=>(l.region_id||"?")==reg.id).length!==1?"s":""}
+              </div>
+            </div>
+          ))}
+          <div className="kpi main">
+            <div className="lbl" style={{color:"rgba(255,255,255,.6)"}}>Total mensuel</div>
+            <div className="kpi-v">{fE(tot.monthly)}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,.5)",marginTop:3}}>{lines.length} ligne{lines.length!==1?"s":""} — {byRegion.length} regions</div>
+          </div>
+        </div>
+      ) : (
+        <div className="kpi-bar">
+          <div className="kpi main">
+            <div className="lbl" style={{color:"rgba(255,255,255,.6)"}}>Total mensuel</div>
+            <div className="kpi-v">{fE(tot.monthly)}</div>
+            <div style={{fontSize:11,color:"rgba(255,255,255,.5)",marginTop:3}}>
+              {lines.length} ligne{lines.length!==1?"s":""}{byRegion[0]?` — ${FLAG[byRegion[0].flag]||""} ${byRegion[0].id}`:""}
+            </div>
+          </div>
+          <div className="kpi" style={{borderRight:"1px solid var(--border)"}}>
+            <div className="lbl">Total annuel</div>
+            <div className="kpi-v" style={{color:"var(--os-blue-dark)"}}>{fE(tot.yearly)}</div>
+          </div>
+          <div className="kpi">
+            <div className="lbl">Total 3 ans</div>
+            <div className="kpi-v" style={{color:"var(--os-blue-dark)"}}>{fE(tot.three_year)}</div>
+          </div>
+        </div>
+      )}
+
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",borderBottom:"1px solid var(--border)"}}>
+        <div style={{fontWeight:600,fontSize:14,color:"var(--os-blue-dark)"}}>Detail par region et categorie</div>
+        <div style={{display:"flex",gap:3,background:"var(--panel-2)",borderRadius:6,padding:3,border:"1px solid var(--border)"}}>
+          {[{k:"monthly",l:"Mois"},{k:"yearly",l:"Annee"},{k:"three_year",l:"3 ans"}].map(t => (
+            <button key={t.k} onClick={()=>setHz(t.k)}
+              style={{padding:"4px 10px",borderRadius:5,border:"none",fontSize:12,fontWeight:500,cursor:"pointer",
+                background:hz===t.k?"var(--os-blue)":"transparent",
+                color:hz===t.k?"#fff":"var(--text-dim)",transition:"all .15s",fontFamily:"inherit"}}>
+              {t.l}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {lines.length===0 ? (
+        <div style={{textAlign:"center",padding:"32px 0",color:"var(--text-muted)"}}>
+          <div style={{fontSize:34,marginBottom:6}}>○</div>
+          <div style={{fontSize:13}}>Aucune ressource dans l'estimation.</div>
+        </div>
+      ) : (
+      <div style={{overflowX:"auto"}} className="scroll">
+        <table className="pvt">
+          <thead><tr>
+            <th>Region / Categorie / Ressource</th>
+            <th className="r">Mensuel HT</th><th className="r">Annuel HT</th><th className="r">3 ans HT</th><th className="r">%</th>
+          </tr></thead>
+          <tbody>
+            {byRegion.map(reg => (
+              <React.Fragment key={reg.id}>
+                {/* Region header row */}
+                <tr style={{background:"var(--os-blue-pale)"}}>
+                  <td colSpan={5} style={{fontWeight:700,fontSize:13,color:"var(--os-blue-dark)",padding:"8px 12px",borderTop:"2px solid var(--border-2)"}}>
+                    {FLAG[reg.flag]||""} {reg.id}{reg.name&&reg.name!==reg.id?" — "+reg.name:""}
+                  </td>
+                </tr>
+                {/* Groups */}
+                {reg.grps.map(g => {
+                  const expKey = reg.id+":"+g.id;
+                  const isO = exp[expKey];
+                  const pct = tot[hz]>0 ? g[hz]/tot[hz]*100 : 0;
+                  return (<React.Fragment key={g.id}>
+                    <tr className="gr" onClick={()=>setExp({...exp,[expKey]:!isO})}>
+                      <td style={{paddingLeft:20}}><div style={{display:"flex",alignItems:"center",gap:7}}>
+                        <span style={{color:"var(--text-muted)",fontSize:9,transform:isO?"rotate(90deg)":"",display:"inline-block",transition:"transform .15s"}}>&#9658;</span>
+                        <span className={"bdg "+g.bc}>{g.label}</span>
+                        <span style={{fontSize:11,color:"var(--text-muted)"}}>{g.items.length} ligne{g.items.length>1?"s":""}</span>
+                      </div></td>
+                      <td className="numh">{fE(g.monthly,2)}</td>
+                      <td className="numh">{fE(g.yearly,2)}</td>
+                      <td className="numh">{fE(g.three_year,2)}</td>
+                      <td className="num">
+                        <div style={{display:"flex",alignItems:"center",gap:7,justifyContent:"flex-end"}}>
+                          <div className="prog" style={{width:52}}><div className="prog-b" style={{width:`${Math.min(100,pct)}%`}}/></div>
+                          <span className="mono" style={{width:40,textAlign:"right",fontSize:12}}>{pct.toFixed(1)}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                    {isO && g.items.map((it,i) => (
+                      <tr key={i} className="dr">
+                        <td style={{paddingLeft:44}}>
+                          <div style={{fontWeight:500}}>{it.line.desc||<em style={{color:"var(--text-muted)",fontWeight:400}}>Sans description</em>}</div>
+                          <div className="mono" style={{fontSize:11,color:"var(--text-muted)"}}>{it.r.detail}</div>
+                        </td>
+                        <td className="num">{fE(it.r.monthly,2)}</td>
+                        <td className="num">{fE(it.r.yearly,2)}</td>
+                        <td className="num">{fE(it.r.three_year,2)}</td>
+                        <td className="num" style={{fontSize:11}}>{tot[hz]>0?(it.r[hz]/tot[hz]*100).toFixed(2)+"%":"..."}</td>
+                      </tr>
+                    ))}
+                  </React.Fragment>);
+                })}
+                {/* Region subtotal (only if multi-region) */}
+                {multiRegion && (
+                  <tr style={{background:"var(--os-blue-pale2)"}}>
+                    <td style={{fontWeight:600,fontSize:12.5,color:"var(--os-blue-dark)",paddingLeft:20,borderTop:"1px solid var(--border)"}}>
+                      Sous-total {FLAG[reg.flag]||""} {reg.id}
+                    </td>
+                    <td className="numh" style={{borderTop:"1px solid var(--border)"}}>{fE(reg.monthly,2)}</td>
+                    <td className="numh" style={{borderTop:"1px solid var(--border)"}}>{fE(reg.yearly,2)}</td>
+                    <td className="numh" style={{borderTop:"1px solid var(--border)"}}>{fE(reg.three_year,2)}</td>
+                    <td className="num" style={{borderTop:"1px solid var(--border)"}}>
+                      {tot[hz]>0?(reg[hz]/tot[hz]*100).toFixed(1)+"%":"..."}
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            ))}
+            <tr className="tot">
+              <td>Total general</td>
+              <td className="numh">{fE(tot.monthly)}</td>
+              <td className="numh">{fE(tot.yearly)}</td>
+              <td className="numh">{fE(tot.three_year)}</td>
+              <td className="num">100%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      )}
+    </div>
+  );
+}
+
+/* ── EngBreakdown ── */
+function EngBreakdown({lines, results}) {
+  const {engagements} = useContext(AppCtx);
+  const data = useMemo(() => {
+    const by = {};
+    lines.forEach((l, i) => {
+      const id = l.engagement||"...";
+      if (!by[id]) { const d=engagements.find(e=>e.id===id); by[id]={id,label:d?d.label:"...",monthly:0,count:0}; }
+      by[id].monthly += results[i].monthly;
+      by[id].count   += 1;
+    });
+    const tot = Object.values(by).reduce((s,b) => s+b.monthly, 0);
+    return {items: Object.values(by).sort((a,b) => b.monthly-a.monthly), tot};
+  }, [lines, results, engagements]);
+
+  return (
+    <table className="pvt">
+      <thead><tr><th>Engagement</th><th className="r">Lignes</th><th className="r">Mensuel HT</th><th className="r">Part</th></tr></thead>
+      <tbody>{data.items.map(it => (
+        <tr key={it.id} className="dr">
+          <td style={{fontWeight:500}}>{it.label}</td>
+          <td className="num">{it.count}</td>
+          <td className="numh">{fE(it.monthly,2)}</td>
+          <td className="num">
+            <div style={{display:"flex",alignItems:"center",gap:7,justifyContent:"flex-end"}}>
+              <div className="prog" style={{width:52}}>
+                <div className="prog-b" style={{width:`${data.tot>0?it.monthly/data.tot*100:0}%`}}/>
+              </div>
+              <span className="mono" style={{width:40,textAlign:"right",fontSize:12}}>
+                {data.tot>0?(it.monthly/data.tot*100).toFixed(1):0}%
+              </span>
+            </div>
+          </td>
+        </tr>
+      ))}</tbody>
+    </table>
+  );
+}
+
+/* ── HelpPage ── */
+function HelpPage() {
+  const {engagements, regions} = useContext(AppCtx);
+  return (
+    <div className="card help fade-in" style={{maxWidth:900,margin:"0 auto",padding:"24px 32px"}}>
+      <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+        <div style={{width:42,height:42,background:"var(--os-blue)",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:22,flexShrink:0}}>?</div>
+        <div>
+          <h1 style={{margin:0,fontSize:22,color:"var(--os-blue-dark)"}}>Guide d'utilisation</h1>
+          <p style={{margin:0,color:"var(--text-muted)",fontSize:12.5}}>Outscale Cloud Estimator</p>
+        </div>
+      </div>
+      <div className="info-banner" style={{marginBottom:16}}>
+        Estimation indicative basee sur les tarifs publics 3DS OUTSCALE. Pour un devis officiel :
+        <a href="https://fr.outscale.com/contactez-nous/" target="_blank" rel="noreferrer"> fr.outscale.com/contactez-nous</a>
+      </div>
+
+      <h2>Navigation</h2>
+      <table><thead><tr><th>Onglet</th><th>Description</th></tr></thead><tbody>
+        <tr><td>Cote a cote</td><td>Saisie et synthese simultanees.</td></tr>
+        <tr><td>Saisie</td><td>Formulaire seul pour configurer les ressources.</td></tr>
+        <tr><td>Synthese</td><td>Tableau croise par region et categorie + analyse par engagement.</td></tr>
+        <tr><td>Aide</td><td>Ce guide.</td></tr>
+      </tbody></table>
+      <div className="info-banner" style={{marginTop:8}}>
+        La gestion des tarifs est accessible depuis l'<a href="/admin/">interface d'administration</a>.
+      </div>
+
+      <h2>Multi-regions</h2>
+      <p>Chaque ressource est affectee a une region. Activez plusieurs regions dans l'en-tete pour faire un chiffrage multi-region. La synthese regroupe les ressources par region avec les couts correspondants.</p>
+      <table><thead><tr><th>ID</th><th>Zone</th></tr></thead><tbody>
+        {regions.map(r => <tr key={r.id}><td><span className="code">{r.id}</span></td><td>{FLAG[r.flag]} {r.name}</td></tr>)}
+      </tbody></table>
+
+      <h2>Types de ressources</h2>
+      <h3>VM (FCU)</h3>
+      <p>Formule : (vCores x tarif_vCore + RAM x tarif_RAM) x qte x 730h x usage x (1 - remise). VM dediee = +10%.</p>
+      <h3>GPU flexible</h3>
+      <p>Remise RI plafonnee a 30%, meme pour un engagement 3 ans.</p>
+      <h3>OKS</h3>
+      <p>Disponible uniquement en eu-west-2 et cloudgouv-eu-west-1.</p>
+      <h3>BSU / OOS</h3>
+      <p>Facturation mensuelle au GiB. BSU Enterprise (io1) : IOPS provisionnees facturees en plus.</p>
+      <h3>Reseau</h3>
+      <p>VPN / LBU / NAT / EIP : tarif horaire x 730h. DirectLink : abonnement mensuel + frais de mise en service one-shot.</p>
+
+      <h2>Scenarios RI</h2>
+      <table><thead><tr><th>ID</th><th>Remise</th></tr></thead>
+      <tbody>{engagements.map(e => (
+        <tr key={e.id}>
+          <td><span className="code" style={{fontSize:11}}>{e.id}</span></td>
+          <td className="mono" style={{color:"var(--ok)"}}>{e.discount>0?`-${Math.round((e.discount??e.d??0)*100)}%`:"0%"}</td>
+        </tr>
+      ))}</tbody></table>
+
+      <h2>Import / Export JSON</h2>
+      <p>Le fichier exporte inclut les lignes de ressources avec leur region d'affectation. Il peut etre versionne (Git) ou partage entre utilisateurs.</p>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   APP
+══════════════════════════════════════════════════════════════════ */
+function App() {
+  const [lines,        setLines]        = useState([]);
+  const [activeRegions,setActiveRegions]= useState(["eu-west-2"]);
+  const [tab,          setTab]          = useState("split");
+  const [catalog,      setCatalog]      = useState(null);
+  const [regions,      setRegions]      = useState(OSApi.DEFAULT_REGIONS);
+  const [engagements,  setEngagements]  = useState(OSApi.DEFAULT_ENGAGEMENTS);
+  const [loaded,       setLoaded]       = useState(false);
+  const [apiError,     setApiError]     = useState(false);
+  const [filter,       setFilter]       = useState("");
+  const fileRef = useRef(null);
+
+  /* Chargement initial */
+  useEffect(() => {
+    (async () => {
+      try {
+        const {catalog: cat, regions: reg, engagements: eng} = await OSApi.loadAll();
+        if (cat)  setCatalog(cat);
+        if (reg)  setRegions(reg);
+        if (eng)  setEngagements(eng);
+        if (!cat) setApiError(true);
+      } catch {
+        setApiError(true);
+      }
+
+      const savedAR = localStorage.getItem("osc:activeRegions");
+      if (savedAR) { try { setActiveRegions(JSON.parse(savedAR)); } catch {} }
+
+      const savedLines = localStorage.getItem("osc:lines");
+      setLines(savedLines ? JSON.parse(savedLines) : DEMO);
+
+      setLoaded(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (loaded) localStorage.setItem("osc:activeRegions", JSON.stringify(activeRegions));
+  }, [activeRegions, loaded]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    localStorage.setItem("osc:lines", JSON.stringify(lines.map(({_open,...r}) => r)));
+  }, [lines, loaded]);
+
+  const toggleRegion = useCallback((rid) => {
+    setActiveRegions(prev => {
+      if (prev.includes(rid)) {
+        if (prev.length === 1) return prev; // impossible de tout desactiver
+        return prev.filter(r => r !== rid);
+      }
+      return [...prev, rid];
+    });
+  }, []);
+
+  /* Catalog actif */
+  const C = useMemo(() => {
+    if (catalog) return catalog;
+    return {
+      ram:[], ded_fee:[], vcore:{v7:{medium:[],high:[],highest:[]}},
+      gpu:{}, oks:{}, storage:{}, oos:{gb:[]},
+      vpn:[], nat:[], lbu:[], eip:[],
+      dl_setup:[], dl_1gbps:[], dl_10gbps:[],
+      hdl_setup:[], hdl_1gbps:[], hdl_10gbps:[],
+      lic:{}, gpu_ri_cap:0.30, dedicated_surcharge:0.10, hours_per_month:730,
+    };
+  }, [catalog]);
+
+  const results = useMemo(() =>
+    lines.map(l => calcLine(l, C, l.region_id || activeRegions[0], regions, engagements)),
+    [lines, C, activeRegions, regions, engagements]
+  );
+  const totalM = useMemo(() => results.reduce((s,r) => s+r.monthly, 0), [results]);
+
+  const updLine = useCallback((id, nl) => setLines(ls => ls.map(l => l.id===id ? nl : l)), []);
+  const delLine = useCallback((id)      => setLines(ls => ls.filter(l => l.id!==id)), []);
+  const dupLine = useCallback((id)      => setLines(ls => {
+    const s = ls.find(l => l.id===id);
+    return s ? [...ls, {...s, id:UID(), desc:(s.desc||"")+" (copie)", _open:true}] : ls;
+  }), []);
+  const addLine = useCallback(l => setLines(ls => [...ls, l]), []);
+
+  const exportJson = () => {
+    const blob = new Blob([JSON.stringify({lines: lines.map(({_open,...r}) => r)}, null, 2)], {type:"application/json"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a"); a.href=url; a.download="outscale-estimation.json"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importJson = file => {
+    const rd = new FileReader();
+    rd.onload = () => {
+      try {
+        const d = JSON.parse(rd.result);
+        if (d.lines) setLines(d.lines.map(x => ({...x, id:x.id||UID()})));
+      } catch { alert("JSON invalide."); }
+    };
+    rd.readAsText(file);
+  };
+
+  const filtered = filter
+    ? lines.filter(l => (filter==="compute" ? (l.type==="compute"||l.type==="dedicated-access") : l.type===filter))
+    : lines;
+
+  const ctxVal = {regions, engagements, catalog: C, activeRegions};
+
+  if (!loaded) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"var(--text-muted)"}}>
+      Chargement...
+    </div>
+  );
+
+  return (
+    <AppCtx.Provider value={ctxVal}>
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+
+      <header className="hdr">
+        <div className="hdr-inner">
+          <div className="logo-wrap">
+            <img src="/assets/logo-outscale-blanc.svg" alt="OUTSCALE" height="28" style={{display:"block"}}/>
+            <div style={{marginTop:1}}><div className="logo-text-sub">Cloud Estimator</div></div>
+          </div>
+
+          <div className="vdiv"/>
+
+          <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
+            <span style={{fontSize:10,color:"rgba(255,255,255,.4)",textTransform:"uppercase",letterSpacing:".06em",marginRight:4}}>Regions</span>
+            {regions.map(r => (
+              <button key={r.id}
+                className={"reg-btn"+(activeRegions.includes(r.id)?" on":"")}
+                onClick={()=>toggleRegion(r.id)}
+                title={r.name+(activeRegions.includes(r.id)?" (active — cliquez pour desactiver)":" (cliquez pour activer)")}>
+                {FLAG[r.flag]} {r.short}
+              </button>
+            ))}
+          </div>
+
+          <div style={{flex:1}}/>
+
+          <nav className="nav-tabs">
+            {[{k:"split",l:"Cote a cote"},{k:"input",l:"Saisie"},{k:"view",l:"Synthese"},{k:"help",l:"Aide"}].map(t => (
+              <div key={t.k} className={"ntab"+(tab===t.k?" on":"")} onClick={()=>setTab(t.k)}>{t.l}</div>
+            ))}
+          </nav>
+
+          <div className="vdiv"/>
+
+          <div style={{display:"flex",gap:5,flexShrink:0}}>
+            <input ref={fileRef} type="file" accept="application/json" style={{display:"none"}}
+              onChange={e => { if (e.target.files[0]) importJson(e.target.files[0]); }}/>
+            <button className="io-btn" onClick={()=>fileRef.current.click()}>Importer</button>
+            <button className="io-btn" onClick={exportJson}>Exporter</button>
+            <a href="/admin/" className="io-btn" style={{textDecoration:"none",display:"flex",alignItems:"center"}}>Admin</a>
+          </div>
+        </div>
+      </header>
+
+      <main style={{flex:1,maxWidth:1760,width:"100%",margin:"0 auto",padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
+
+        {apiError && tab!=="help" && (
+          <div className="warn-banner">
+            API indisponible — tarifs chargés depuis le cache local. Lancez le backend :
+            <code style={{marginLeft:8,fontFamily:"monospace"}}>python3 api/server.py</code>
+          </div>
+        )}
+
+        {!apiError && tab!=="help" && (
+          <div className="warn-banner">
+            <strong>Estimation indicative HT</strong> — Tarifs Outscale —
+            region{activeRegions.length>1?"s":""} : <strong>{activeRegions.join(", ")}</strong>.
+            <a href="https://fr.outscale.com/tarifs/" target="_blank" rel="noreferrer" style={{marginLeft:8,color:"#7c3700"}}>Tarifs officiels</a>
+          </div>
+        )}
+
+        {tab==="help" && <HelpPage/>}
+
+        {(tab==="split"||tab==="input"||tab==="view") && (
+          <div style={{display:"grid",gridTemplateColumns:tab==="split"?"1fr 1fr":"1fr",gap:14,alignItems:"start"}}>
+
+            {(tab==="split"||tab==="input") && (
+              <div className="card">
+                <div className="phdr">
+                  <div>
+                    <div className="slbl">Hypotheses de consommation</div>
+                    <div className="stitle">Ressources consommees</div>
+                  </div>
+                  <div style={{textAlign:"right"}}>
+                    <div className="mono" style={{fontSize:18,fontWeight:700,color:"var(--os-orange-dark)"}}>{fE(totalM)}</div>
+                    <div style={{fontSize:10,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:".05em"}}>/mois</div>
+                  </div>
+                </div>
+
+                <div style={{display:"flex",flexWrap:"wrap",gap:4,padding:"8px 14px",borderBottom:"1px solid var(--border)",alignItems:"center"}}>
+                  <span style={{fontSize:11,color:"var(--text-muted)",marginRight:2}}>Afficher :</span>
+                  <button className={"btn xs"+(filter===""?" blue":"")} onClick={()=>setFilter("")}>Tout ({lines.length})</button>
+                  {[{id:"compute",l:"Compute"},{id:"gpu",l:"GPU"},{id:"oks",l:"OKS"},{id:"bsu",l:"BSU"},{id:"oos",l:"OOS"},{id:"net",l:"Reseau"},{id:"lic",l:"Licences"}].map(f => {
+                    const n = lines.filter(l => (f.id==="compute" ? (l.type==="compute"||l.type==="dedicated-access") : l.type===f.id)).length;
+                    if (!n) return null;
+                    return <button key={f.id} className={"btn xs"+(filter===f.id?" blue":"")} onClick={()=>setFilter(filter===f.id?"":f.id)}>{f.l} ({n})</button>;
+                  })}
+                  <div style={{flex:1}}/>
+                  <button className="btn xs ghost" onClick={()=>{if(confirm("Charger les donnees de demo ?"))setLines(DEMO);}}>Demo</button>
+                  <button className="btn xs ghost danger" onClick={()=>{if(confirm("Supprimer toutes les lignes ?"))setLines([]);}}>Vider</button>
+                </div>
+
+                <div style={{padding:10,maxHeight:"calc(100vh - 315px)",overflowY:"auto"}} className="scroll">
+                  {filtered.length===0 ? (
+                    <div style={{textAlign:"center",padding:"28px 0",color:"var(--text-muted)"}}>
+                      <div style={{fontSize:34,marginBottom:6}}>○</div>
+                      <div style={{fontSize:13}}>Aucune ressource{filter?" dans cette categorie":""}.</div>
+                    </div>
+                  ) : filtered.map(l => (
+                    <LineEditor key={l.id} line={l} C={C}
+                      onChange={nl => updLine(l.id, nl)}
+                      onDelete={()  => delLine(l.id)}
+                      onDuplicate={() => dupLine(l.id)}/>
+                  ))}
+                </div>
+                <div style={{padding:"8px 10px",borderTop:"1px solid var(--border)"}}>
+                  <AddMenu onAdd={addLine} C={C}/>
+                </div>
+              </div>
+            )}
+
+            {(tab==="split"||tab==="view") && (
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                <PivotTable lines={lines} results={results}/>
+                <div className="card">
+                  <div className="phdr"><div><div className="slbl">Analyse</div><div className="stitle">Par engagement</div></div></div>
+                  <div style={{padding:10}}><EngBreakdown lines={lines} results={results}/></div>
+                </div>
+              </div>
+            )}
+
+          </div>
+        )}
+
+        <footer style={{borderTop:"1px solid var(--border)",paddingTop:10,display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--text-muted)"}}>
+          <span>Outscale Cloud Estimator — <a href="https://fr.outscale.com/tarifs/" target="_blank" rel="noreferrer">fr.outscale.com/tarifs</a></span>
+          <span className="mono">{lines.length} ligne{lines.length!==1?"s":""} — {activeRegions.join(", ")}</span>
+        </footer>
+      </main>
+    </div>
+    </AppCtx.Provider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

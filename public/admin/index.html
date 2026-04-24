@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Admin — OUTSCALE Estimateur</title>
+<link rel="icon" type="image/png" href="/assets/favicon.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Open+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/style.css">
+<style>
+.adm-hdr{background:var(--os-blue-dark);border-bottom:3px solid var(--os-orange);position:sticky;top:0;z-index:50}
+.adm-hdr-inner{max-width:1400px;margin:0 auto;padding:0 20px;height:52px;display:flex;align-items:center;gap:12px}
+.adm-main{max-width:1400px;margin:0 auto;padding:20px}
+.tab-bar{display:flex;gap:2px;background:rgba(0,0,0,.2);border-radius:8px;padding:3px}
+.atab{padding:5px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;color:rgba(255,255,255,.65);transition:all .15s;border:none;background:none;font-family:inherit;white-space:nowrap}
+.atab:hover{color:#fff;background:rgba(255,255,255,.1)}
+.atab.on{color:var(--os-blue-dark);background:#fff}
+/* Catalogue grid */
+.cat-section{padding:7px 12px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--os-blue);background:var(--os-blue-pale);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.cat-inp{width:88px;background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:4px 6px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text);transition:border-color .15s}
+.cat-inp:focus{outline:none;border-color:var(--os-blue);box-shadow:0 0 0 2px rgba(0,83,134,.1)}
+.cat-inp.dirty{border-color:var(--os-orange);background:var(--os-orange-pale)}
+.cat-inp.fresh{border-color:var(--ok);background:var(--ok-bg)}
+/* History diff */
+.diff-add{background:#dcfce7;color:#166534}
+.diff-del{background:#fee2e2;color:#991b1b}
+.diff-chg{background:#fef9c3;color:#713f12}
+/* Login */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+.login-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:36px 40px;width:360px;box-shadow:0 8px 32px rgba(0,83,134,.08)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const {useState, useEffect, useMemo, useRef, useCallback} = React;
+
+const API = '/api';
+const TOKEN_KEY = 'osc:admin_token';
+
+/* ── Helpers API ── */
+function getToken() { return localStorage.getItem(TOKEN_KEY)||""; }
+
+async function apiFetch(path, opts={}) {
+  const token = getToken();
+  const r = await fetch(API+path, {
+    ...opts,
+    headers: {'Content-Type':'application/json', 'Authorization':`Bearer ${token}`, ...(opts.headers||{})},
+  });
+  if (r.status === 401) { localStorage.removeItem(TOKEN_KEY); window.location.reload(); }
+  if (!r.ok) { const e = await r.json().catch(()=>({error:`HTTP ${r.status}`})); throw new Error(e.error||`HTTP ${r.status}`); }
+  return r.json();
+}
+
+function fE(v, d=0) { return (v||0).toLocaleString("fr-FR",{minimumFractionDigits:d,maximumFractionDigits:d})+" EUR"; }
+function fp(v, d=4) { return parseFloat((v||0).toFixed(d)); }
+
+const FLAG = {FR:"🇫🇷",US:"🇺🇸",JP:"🇯🇵"};
+
+/* ── LoginPage ── */
+function LoginPage({onLogin}) {
+  const [pwd, setPwd]   = useState("");
+  const [err, setErr]   = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async e => {
+    e.preventDefault();
+    setBusy(true); setErr("");
+    try {
+      const {token} = await fetch(API+'/auth/login', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({password:pwd}),
+      }).then(async r => { const d=await r.json(); if(!r.ok) throw new Error(d.error); return d; });
+      localStorage.setItem(TOKEN_KEY, token);
+      onLogin();
+    } catch(e) {
+      setErr(e.message||"Erreur de connexion");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="login-wrap">
+      <div className="login-card">
+        <div style={{textAlign:"center",marginBottom:24}}>
+          <div style={{width:48,height:48,background:"var(--os-blue-dark)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 12px",color:"#fff",fontSize:22}}>⚙</div>
+          <div style={{fontWeight:700,fontSize:18,color:"var(--os-blue-dark)"}}>Administration</div>
+          <div style={{fontSize:12,color:"var(--text-muted)",marginTop:4}}>OUTSCALE Cloud Estimateur</div>
+        </div>
+        <form onSubmit={submit}>
+          <div style={{marginBottom:14}}>
+            <div className="lbl">Mot de passe</div>
+            <input type="password" className="inp" value={pwd} onChange={e=>setPwd(e.target.value)}
+              placeholder="••••••••" autoFocus style={{fontSize:15}}/>
+          </div>
+          {err && <div className="err-banner" style={{marginBottom:12}}>{err}</div>}
+          <button type="submit" className="btn blue" disabled={busy||!pwd} style={{width:"100%",justifyContent:"center",padding:"9px 0",fontSize:14}}>
+            {busy?"Connexion...":"Se connecter"}
+          </button>
+        </form>
+        <div style={{marginTop:16,fontSize:11,color:"var(--text-muted)",textAlign:"center"}}>
+          <a href="/" style={{color:"var(--text-muted)"}}>← Retour à l'estimateur</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Composant ligne prix (catalogue) ── */
+function PriceRow({label, bk, arr, regionIds, edits, onEdit, saved}) {
+  return (
+    <div style={{display:"grid",gridTemplateColumns:`minmax(220px,2fr) repeat(${arr.length},100px)`,background:"var(--panel)",borderBottom:"1px solid var(--border)"}}>
+      <div style={{padding:"6px 10px",color:"var(--text-dim)",fontSize:12.5,alignSelf:"center"}}>{label}</div>
+      {arr.map((v, i) => {
+        const k = `${bk}__${i}`;
+        const isDirty  = edits[k] !== undefined;
+        const wasSaved = !isDirty && saved[k] !== undefined;
+        const display  = isDirty ? edits[k] : (v===0?"0":String(fp(v,4)));
+        return (
+          <div key={i} style={{padding:"4px 6px"}}>
+            <input className={"cat-inp"+(isDirty?" dirty":wasSaved?" fresh":"")}
+              value={display}
+              onChange={e => onEdit(k, e.target.value)}
+              title={`${regionIds[i]}: ${v}`}/>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── CatalogTab ── */
+function CatalogTab() {
+  const [data, setData]     = useState(null);
+  const [regions, setRegions] = useState([]);
+  const [edits, setEdits]   = useState({});
+  const [saved, setSaved]   = useState({});
+  const [comment, setComment] = useState("");
+  const [status, setStatus] = useState("idle"); // idle|saving|ok|err
+  const [errMsg, setErrMsg] = useState("");
+
+  useEffect(() => {
+    Promise.all([apiFetch('/catalog'), apiFetch('/regions')])
+      .then(([cat, reg]) => { setData(cat); setRegions((reg.regions||reg).filter(r=>r.active!==false)); })
+      .catch(e => setErrMsg(e.message));
+  }, []);
+
+  const setE = (k, v) => setEdits(e => ({...e, [k]:v}));
+  const dirtyCount = Object.keys(edits).length;
+  const regionIds  = regions.map(r => r.id);
+
+  const buildPayload = () => {
+    const nc = JSON.parse(JSON.stringify(data));
+    for (const [k, v] of Object.entries(edits)) {
+      const parts = k.split("__"); const val = parseFloat(v); if (isNaN(val)) continue;
+      try {
+        if      (parts[0]==="ram")         nc.ram[+parts[1]]=val;
+        else if (parts[0]==="ded_fee")     nc.ded_fee[+parts[1]]=val;
+        else if (parts[0]==="vcore")       nc.vcore[parts[1]][parts[2]][+parts[3]]=val;
+        else if (parts[0]==="gpu")         nc.gpu[parts[1]][+parts[2]]=val;
+        else if (parts[0]==="oks")         nc.oks[parts[1]][+parts[2]]=val;
+        else if (parts[0]==="stor_gb")     nc.storage[parts[1]].gb[+parts[2]]=val;
+        else if (parts[0]==="stor_iops")   nc.storage[parts[1]].iops[+parts[2]]=val;
+        else if (parts[0]==="oos")         nc.oos.gb[+parts[1]]=val;
+        else if (parts[0]==="vpn")         nc.vpn[+parts[1]]=val;
+        else if (parts[0]==="nat")         nc.nat[+parts[1]]=val;
+        else if (parts[0]==="lbu")         nc.lbu[+parts[1]]=val;
+        else if (parts[0]==="eip")         nc.eip[+parts[1]]=val;
+        else if (parts[0]==="dl_setup")    nc.dl_setup[+parts[1]]=val;
+        else if (parts[0]==="dl_1g")       nc.dl_1gbps[+parts[1]]=val;
+        else if (parts[0]==="dl_10g")      nc.dl_10gbps[+parts[1]]=val;
+        else if (parts[0]==="hdl_setup")   nc.hdl_setup[+parts[1]]=val;
+        else if (parts[0]==="hdl_1g")      nc.hdl_1gbps[+parts[1]]=val;
+        else if (parts[0]==="hdl_10g")     nc.hdl_10gbps[+parts[1]]=val;
+        else if (parts[0]==="lic")         nc.lic[parts[1]].price[+parts[2]]=val;
+        else if (parts[0]==="const_gricap")nc.gpu_ri_cap=val;
+        else if (parts[0]==="const_ded")   nc.dedicated_surcharge=val;
+        else if (parts[0]==="const_hpm")   nc.hours_per_month=val;
+      } catch {}
+    }
+    return nc;
+  };
+
+  const save = async () => {
+    if (!comment.trim()) { setErrMsg("Un commentaire est obligatoire."); return; }
+    setStatus("saving"); setErrMsg("");
+    try {
+      const payload = buildPayload();
+      payload._comment = comment;
+      await apiFetch('/catalog', {method:'PUT', body:JSON.stringify(payload)});
+      setData(buildPayload());
+      setSaved({...edits}); setEdits({}); setComment("");
+      setStatus("ok"); setTimeout(()=>setStatus("idle"), 4000);
+    } catch(e) { setErrMsg(e.message); setStatus("err"); }
+  };
+
+  if (errMsg && !data) return <div className="err-banner">{errMsg}</div>;
+  if (!data) return <div style={{padding:20,color:"var(--text-muted)"}}>Chargement...</div>;
+
+  const rh = () => (
+    <div style={{display:"grid",gridTemplateColumns:`minmax(220px,2fr) repeat(${regions.length},100px)`,background:"var(--os-blue-dark)",padding:"6px 0"}}>
+      <div style={{padding:"0 10px",fontSize:10,fontWeight:600,color:"rgba(255,255,255,.5)",textTransform:"uppercase",letterSpacing:".06em",alignSelf:"center"}}>Service</div>
+      {regions.map(r => <div key={r.id} style={{textAlign:"center",fontSize:10,fontWeight:600,color:"rgba(255,255,255,.85)",padding:"2px 4px"}}>{FLAG[r.flag]||""}<br/><span style={{fontSize:9,color:"rgba(255,255,255,.55)"}}>{r.short}</span></div>)}
+    </div>
+  );
+
+  const pr = (label, bk, arr) => (
+    <PriceRow key={bk} label={label} bk={bk} arr={arr} regionIds={regionIds} edits={edits} onEdit={setE} saved={saved}/>
+  );
+
+  return (
+    <div className="fade-in">
+      {/* Barre d'action */}
+      <div className="card" style={{marginBottom:14,padding:"12px 16px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)"}}>Catalogue des tarifs</div>
+            <div style={{fontSize:11,color:"var(--text-muted)",marginTop:2}}>
+              {data._meta && `v${data._meta.version} — mis à jour ${data._meta.updated_at?.slice(0,10)} par ${data._meta.updated_by}`}
+            </div>
+          </div>
+          <input className="inp" style={{maxWidth:320}} placeholder="Commentaire obligatoire…" value={comment} onChange={e=>setComment(e.target.value)}/>
+          <button className="btn orange" disabled={dirtyCount===0||status==="saving"} onClick={save}>
+            {status==="saving"?"Sauvegarde...":`Sauvegarder (${dirtyCount} modif.)`}
+          </button>
+        </div>
+        {status==="ok"  && <div className="ok-banner"  style={{marginTop:10}}>Catalogue sauvegardé — snapshot créé.</div>}
+        {errMsg         && <div className="err-banner" style={{marginTop:10}}>{errMsg}</div>}
+      </div>
+
+      {/* Constantes */}
+      <div className="card" style={{marginBottom:14,overflow:"hidden"}}>
+        <div className="cat-section">Constantes de calcul</div>
+        <div style={{padding:"10px 12px",display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
+          {[
+            {label:"Heures/mois",  bk:"const_hpm",    val:data.hours_per_month||730},
+            {label:"Surcharge VM dédiée (%)", bk:"const_ded", val:(data.dedicated_surcharge??0.10)},
+            {label:"Plafond RI GPU (%)", bk:"const_gricap",  val:(data.gpu_ri_cap??0.30)},
+          ].map(c => {
+            const k = `${c.bk}__0`; const isDirty=edits[k]!==undefined; const wasSaved=!isDirty&&saved[k]!==undefined;
+            return <div key={c.bk}>
+              <div className="lbl">{c.label}</div>
+              <input className={"cat-inp"+(isDirty?" dirty":wasSaved?" fresh":"")} style={{width:"100%"}}
+                value={isDirty?edits[k]:String(fp(c.val,4))}
+                onChange={e=>setE(k,e.target.value)}/>
+            </div>;
+          })}
+        </div>
+      </div>
+
+      {/* Grille tarifaire */}
+      <div className="card" style={{overflow:"hidden"}}>
+        {rh()}
+        <div style={{overflowY:"auto",maxHeight:"calc(100vh - 340px)"}} className="scroll">
+          <div className="cat-section">RAM (EUR/GiB/h)</div>
+          {pr("RAM /GiB/h","ram",data.ram)}
+          <div className="cat-section">Accès Dedicated (EUR/h)</div>
+          {pr("Acces FCU Dedicated /h","ded_fee",data.ded_fee)}
+          <div className="cat-section">vCore (EUR/h)</div>
+          {Object.entries(data.vcore||{}).map(([gen,perfs]) =>
+            Object.entries(perfs).map(([perf,arr]) =>
+              pr(`${gen} — ${perf}`, `vcore__${gen}__${perf}`, arr)
+            )
+          )}
+          <div className="cat-section">GPU (EUR/h)</div>
+          {Object.entries(data.gpu||{}).map(([name,arr]) => pr(name, `gpu__${name}`, arr))}
+          <div className="cat-section">OKS Control Plane (EUR/h)</div>
+          {Object.entries(data.oks||{}).map(([name,arr]) => pr(name, `oks__${name}`, arr))}
+          <div className="cat-section">Stockage BSU (EUR/GiB/mois)</div>
+          {Object.entries(data.storage||{}).map(([name,s]) => <React.Fragment key={name}>
+            {pr(`${name} — GiB`, `stor_gb__${name}`, s.gb)}
+            {(s.iops||[]).some(v=>v>0) && pr(`${name} — IOPS`, `stor_iops__${name}`, s.iops)}
+          </React.Fragment>)}
+          <div className="cat-section">Stockage objet OOS (EUR/GiB/mois)</div>
+          {pr("OOS /GiB","oos",data.oos?.gb||[])}
+          <div className="cat-section">Réseau</div>
+          {pr("VPN IPsec /h","vpn",data.vpn||[])}
+          {pr("NAT Gateway /h","nat",data.nat||[])}
+          {pr("LBU /h","lbu",data.lbu||[])}
+          {pr("EIP /h","eip",data.eip||[])}
+          {pr("DirectLink setup","dl_setup",data.dl_setup||[])}
+          {pr("DirectLink 1 Gbps /mois","dl_1g",data.dl_1gbps||[])}
+          {pr("DirectLink 10 Gbps /mois","dl_10g",data.dl_10gbps||[])}
+          {pr("HDL setup","hdl_setup",data.hdl_setup||[])}
+          {pr("HDL 1 Gbps /mois","hdl_1g",data.hdl_1gbps||[])}
+          {pr("HDL 10 Gbps /mois","hdl_10g",data.hdl_10gbps||[])}
+          <div className="cat-section">Licences (EUR/h par unité)</div>
+          {Object.entries(data.lic||{}).map(([name,l]) => pr(name, `lic__${name}`, l.price||[]))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── FormulasTab ── */
+function FormulasTab() {
+  const [data,    setData]    = useState(null);
+  const [dirty,   setDirty]   = useState(false);
+  const [comment, setComment] = useState("");
+  const [status,  setStatus]  = useState("idle");
+  const [errMsg,  setErrMsg]  = useState("");
+
+  useEffect(() => {
+    apiFetch('/formulas').then(d => setData(d)).catch(e => setErrMsg(e.message));
+  }, []);
+
+  const upd = (idx, field, val) => {
+    setData(d => {
+      const engs = [...(d.engagements||[])];
+      engs[idx] = {...engs[idx], [field]:val};
+      return {...d, engagements:engs};
+    });
+    setDirty(true);
+  };
+
+  const addRow = () => {
+    setData(d => ({...d, engagements:[...(d.engagements||[]), {id:`custom-${Date.now()}`,label:"Nouvel engagement",discount:0,active:true}]}));
+    setDirty(true);
+  };
+
+  const delRow = idx => {
+    if (!confirm("Supprimer cet engagement ?")) return;
+    setData(d => ({...d, engagements:(d.engagements||[]).filter((_,i)=>i!==idx)}));
+    setDirty(true);
+  };
+
+  const save = async () => {
+    if (!comment.trim()) { setErrMsg("Un commentaire est obligatoire."); return; }
+    setStatus("saving"); setErrMsg("");
+    try {
+      await apiFetch('/formulas', {method:'PUT', body:JSON.stringify({...data, _comment:comment})});
+      setComment(""); setDirty(false);
+      setStatus("ok"); setTimeout(()=>setStatus("idle"),4000);
+    } catch(e) { setErrMsg(e.message); setStatus("err"); }
+  };
+
+  if (errMsg && !data) return <div className="err-banner">{errMsg}</div>;
+  if (!data) return <div style={{padding:20,color:"var(--text-muted)"}}>Chargement...</div>;
+
+  const engs = data.engagements||[];
+
+  return (
+    <div className="fade-in">
+      <div className="card" style={{marginBottom:14,padding:"12px 16px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)"}}>Formules d'engagement RI</div>
+            <div style={{fontSize:11,color:"var(--text-muted)",marginTop:2}}>
+              {data._meta && `v${data._meta.version} — ${data._meta.updated_at?.slice(0,10)}`}
+            </div>
+          </div>
+          <input className="inp" style={{maxWidth:300}} placeholder="Commentaire obligatoire…" value={comment} onChange={e=>setComment(e.target.value)}/>
+          <button className="btn orange" disabled={!dirty||status==="saving"} onClick={save}>
+            {status==="saving"?"Sauvegarde...":"Sauvegarder"}
+          </button>
+          <button className="btn ghost" onClick={addRow}>+ Ajouter</button>
+        </div>
+        {status==="ok"  && <div className="ok-banner"  style={{marginTop:10}}>Formules sauvegardées.</div>}
+        {errMsg         && <div className="err-banner" style={{marginTop:10}}>{errMsg}</div>}
+      </div>
+
+      <div className="card" style={{overflow:"hidden"}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr 120px 80px 60px",background:"var(--os-blue-dark)",padding:"8px 12px",gap:8}}>
+          {["ID","Libellé","Remise %","Actif",""].map((h,i)=>(
+            <div key={i} style={{fontSize:10,fontWeight:600,color:"rgba(255,255,255,.6)",textTransform:"uppercase",letterSpacing:".06em"}}>{h}</div>
+          ))}
+        </div>
+        {engs.map((e, idx) => (
+          <div key={idx} style={{display:"grid",gridTemplateColumns:"1fr 2fr 120px 80px 60px",padding:"6px 12px",gap:8,borderBottom:"1px solid var(--border)",alignItems:"center"}}
+            onMouseEnter={ev=>ev.currentTarget.style.background="var(--panel-2)"}
+            onMouseLeave={ev=>ev.currentTarget.style.background=""}>
+            <input className="inp mono" style={{fontSize:12,padding:"4px 8px"}} value={e.id}
+              onChange={ev=>upd(idx,"id",ev.target.value)}/>
+            <input className="inp" style={{fontSize:13,padding:"4px 8px"}} value={e.label}
+              onChange={ev=>upd(idx,"label",ev.target.value)}/>
+            <div style={{display:"flex",alignItems:"center",gap:4}}>
+              <input type="number" className="inp mono" style={{fontSize:13,padding:"4px 8px"}} min={0} max={1} step={0.01}
+                value={e.discount??e.d??0} onChange={ev=>upd(idx,"discount",parseFloat(ev.target.value)||0)}/>
+              <span style={{fontSize:12,color:"var(--ok)",fontWeight:600,minWidth:36}}>
+                {Math.round((e.discount??e.d??0)*100)}%
+              </span>
+            </div>
+            <select className="sel" style={{fontSize:12,padding:"4px 6px"}} value={e.active?"1":"0"}
+              onChange={ev=>upd(idx,"active",ev.target.value==="1")}>
+              <option value="1">Oui</option><option value="0">Non</option>
+            </select>
+            <button className="btn xs ghost danger" onClick={()=>delRow(idx)}>✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── RegionsTab ── */
+function RegionsTab() {
+  const [data,    setData]    = useState(null);
+  const [dirty,   setDirty]   = useState(false);
+  const [comment, setComment] = useState("");
+  const [status,  setStatus]  = useState("idle");
+  const [errMsg,  setErrMsg]  = useState("");
+  const [dragIdx, setDragIdx] = useState(null);
+
+  useEffect(() => {
+    apiFetch('/regions').then(d => setData(d)).catch(e => setErrMsg(e.message));
+  }, []);
+
+  const upd = (idx, field, val) => {
+    setData(d => { const r=[...(d.regions||[])]; r[idx]={...r[idx],[field]:val}; return {...d,regions:r}; });
+    setDirty(true);
+  };
+
+  const addRow = () => {
+    setData(d => ({...d, regions:[...(d.regions||[]),{id:"new-region",flag:"FR",short:"NEW",name:"Nouvelle région",active:true}]}));
+    setDirty(true);
+  };
+
+  const delRow = idx => {
+    if (!confirm("Supprimer cette région ? Les prix associés (indices dans les tableaux) seront décalés.")) return;
+    setData(d => ({...d, regions:(d.regions||[]).filter((_,i)=>i!==idx)}));
+    setDirty(true);
+  };
+
+  /* drag-and-drop reorder */
+  const onDragStart = idx => setDragIdx(idx);
+  const onDragOver  = (e, idx) => {
+    e.preventDefault();
+    if (dragIdx===null||dragIdx===idx) return;
+    setData(d => {
+      const r = [...(d.regions||[])];
+      const [el] = r.splice(dragIdx,1); r.splice(idx,0,el);
+      setDragIdx(idx);
+      return {...d, regions:r};
+    });
+    setDirty(true);
+  };
+  const onDragEnd = () => setDragIdx(null);
+
+  const save = async () => {
+    if (!comment.trim()) { setErrMsg("Un commentaire est obligatoire."); return; }
+    setStatus("saving"); setErrMsg("");
+    try {
+      await apiFetch('/regions', {method:'PUT', body:JSON.stringify({...data, _comment:comment})});
+      setComment(""); setDirty(false);
+      setStatus("ok"); setTimeout(()=>setStatus("idle"),4000);
+    } catch(e) { setErrMsg(e.message); setStatus("err"); }
+  };
+
+  if (errMsg && !data) return <div className="err-banner">{errMsg}</div>;
+  if (!data) return <div style={{padding:20,color:"var(--text-muted)"}}>Chargement...</div>;
+
+  const regs = data.regions||[];
+
+  return (
+    <div className="fade-in">
+      <div className="card" style={{marginBottom:14,padding:"12px 16px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)"}}>Régions</div>
+            <div style={{fontSize:11,color:"var(--text-muted)",marginTop:2}}>L'ordre détermine l'index dans les tableaux de prix.</div>
+          </div>
+          <input className="inp" style={{maxWidth:300}} placeholder="Commentaire obligatoire…" value={comment} onChange={e=>setComment(e.target.value)}/>
+          <button className="btn orange" disabled={!dirty||status==="saving"} onClick={save}>
+            {status==="saving"?"Sauvegarde...":"Sauvegarder"}
+          </button>
+          <button className="btn ghost" onClick={addRow}>+ Ajouter</button>
+        </div>
+        {status==="ok"  && <div className="ok-banner"  style={{marginTop:10}}>Régions sauvegardées.</div>}
+        {errMsg         && <div className="err-banner" style={{marginTop:10}}>{errMsg}</div>}
+      </div>
+      <div className="warn-banner" style={{marginBottom:14}}>
+        <strong>Attention :</strong> ajouter ou supprimer une région modifie l'index des prix dans le catalogue.
+        Après toute modification des régions, mettez à jour les tableaux de prix en conséquence.
+      </div>
+
+      <div className="card" style={{overflow:"hidden"}}>
+        <div style={{display:"grid",gridTemplateColumns:"32px 60px 60px 1fr 2fr 80px 40px",background:"var(--os-blue-dark)",padding:"8px 12px",gap:8}}>
+          {["","#","Flag","ID","Nom","Actif",""].map((h,i)=>(
+            <div key={i} style={{fontSize:10,fontWeight:600,color:"rgba(255,255,255,.6)",textTransform:"uppercase",letterSpacing:".06em"}}>{h}</div>
+          ))}
+        </div>
+        {regs.map((r, idx) => (
+          <div key={idx}
+            draggable onDragStart={()=>onDragStart(idx)} onDragOver={e=>onDragOver(e,idx)} onDragEnd={onDragEnd}
+            style={{display:"grid",gridTemplateColumns:"32px 60px 60px 1fr 2fr 80px 40px",padding:"6px 12px",gap:8,
+              borderBottom:"1px solid var(--border)",alignItems:"center",
+              background:dragIdx===idx?"var(--os-blue-pale)":"",cursor:"grab"}}>
+            <span style={{fontSize:16,textAlign:"center",color:"var(--text-muted)"}}>⠿</span>
+            <span className="mono" style={{fontSize:11,color:"var(--text-muted)",textAlign:"center"}}>[{idx}]</span>
+            <select className="sel" style={{fontSize:13,padding:"3px 4px"}} value={r.flag}
+              onChange={e=>upd(idx,"flag",e.target.value)}>
+              {["FR","US","JP","DE","GB","SG"].map(f=><option key={f} value={f}>{FLAG[f]||f} {f}</option>)}
+            </select>
+            <input className="inp mono" style={{fontSize:12,padding:"4px 8px"}} value={r.id}
+              onChange={e=>upd(idx,"id",e.target.value)}/>
+            <input className="inp" style={{fontSize:13,padding:"4px 8px"}} value={r.name}
+              onChange={e=>upd(idx,"name",e.target.value)}/>
+            <select className="sel" style={{fontSize:12,padding:"4px 6px"}} value={r.active?"1":"0"}
+              onChange={e=>upd(idx,"active",e.target.value==="1")}>
+              <option value="1">Oui</option><option value="0">Non</option>
+            </select>
+            <button className="btn xs ghost danger" onClick={()=>delRow(idx)}>✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── HistoryTab ── */
+function HistoryTab() {
+  const [list,     setList]     = useState([]);
+  const [filter,   setFilter]   = useState("");
+  const [loading,  setLoading]  = useState(true);
+  const [diffSnap, setDiffSnap] = useState(null);
+  const [diffData, setDiffData] = useState(null);
+  const [errMsg,   setErrMsg]   = useState("");
+
+  const load = useCallback(() => {
+    setLoading(true);
+    apiFetch('/history'+(filter?`?kind=${filter}`:'')).then(d=>{setList(d);setLoading(false);}).catch(e=>{setErrMsg(e.message);setLoading(false);});
+  }, [filter]);
+
+  useEffect(()=>{ load(); }, [load]);
+
+  const viewDiff = async snap => {
+    try {
+      const [snapData, currentData] = await Promise.all([
+        apiFetch(`/history/${snap.id}`),
+        apiFetch(`/${snap.kind}`),
+      ]);
+      setDiffSnap(snap);
+      setDiffData({snapshot: snapData.data, current: currentData});
+    } catch(e) { setErrMsg(e.message); }
+  };
+
+  const restore = async snap => {
+    if (!confirm(`Restaurer le snapshot ${snap.id} (${snap.kind}) ?\n\nLa version courante sera sauvegardée automatiquement avant restauration.`)) return;
+    try {
+      await apiFetch(`/history/${snap.id}/restore`, {method:'POST', body:JSON.stringify({author:'admin'})});
+      alert("Restauration effectuée.");
+      load();
+    } catch(e) { setErrMsg(e.message); }
+  };
+
+  const del = async snap => {
+    if (!confirm(`Supprimer le snapshot ${snap.id} ?`)) return;
+    try { await apiFetch(`/history/${snap.id}`, {method:'DELETE'}); load(); }
+    catch(e) { setErrMsg(e.message); }
+  };
+
+  const kindBadge = k => ({catalog:"#dbeafe",formulas:"#ede9fe",regions:"#d1fae5"}[k]||"#e5e7eb");
+  const kindColor = k => ({catalog:"#1e4d8c",formulas:"#5b21b6",regions:"#065f46"}[k]||"#374151");
+
+  /* Diff viewer simplifié */
+  const DiffView = ({snap, snap_data, current}) => {
+    const flattenObj = (obj, prefix="") => {
+      const result = {};
+      for (const [k,v] of Object.entries(obj||{})) {
+        if (k.startsWith("_")) continue;
+        const key = prefix?`${prefix}.${k}`:k;
+        if (typeof v==="object"&&!Array.isArray(v)&&v!==null) Object.assign(result, flattenObj(v,key));
+        else result[key] = JSON.stringify(v);
+      }
+      return result;
+    };
+    const snapFlat = flattenObj(snap_data);
+    const currFlat = flattenObj(current);
+    const allKeys  = [...new Set([...Object.keys(snapFlat),...Object.keys(currFlat)])].sort();
+    const changes  = allKeys.filter(k => snapFlat[k]!==currFlat[k]);
+
+    return (
+      <div className="card" style={{marginTop:14}}>
+        <div style={{padding:"12px 16px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div>
+            <div style={{fontWeight:700,color:"var(--os-blue-dark)"}}>Diff — {snap.id}</div>
+            <div style={{fontSize:11,color:"var(--text-muted)"}}>{changes.length} différence{changes.length!==1?"s":""} vs version courante</div>
+          </div>
+          <button className="btn sm ghost" onClick={()=>setDiffSnap(null)}>✕ Fermer</button>
+        </div>
+        {changes.length===0
+          ? <div className="ok-banner" style={{margin:12}}>Aucune différence — ce snapshot est identique à la version courante.</div>
+          : <div style={{overflowY:"auto",maxHeight:400}} className="scroll">
+            <table className="pvt">
+              <thead><tr><th>Clé</th><th>Snapshot</th><th>Courant</th></tr></thead>
+              <tbody>{changes.map(k=>(
+                <tr key={k} className="dr">
+                  <td className="mono" style={{fontSize:11}}>{k}</td>
+                  <td className="mono diff-del" style={{fontSize:11}}>{snapFlat[k]??<em>absent</em>}</td>
+                  <td className="mono diff-add" style={{fontSize:11}}>{currFlat[k]??<em>absent</em>}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>}
+      </div>
+    );
+  };
+
+  return (
+    <div className="fade-in">
+      <div className="card" style={{marginBottom:14,padding:"12px 16px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+          <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)"}}>Historique des modifications</div>
+          <div style={{display:"flex",gap:4}}>
+            {[{k:"",l:"Tous"},{k:"catalog",l:"Catalogue"},{k:"formulas",l:"Formules"},{k:"regions",l:"Régions"}].map(f=>(
+              <button key={f.k} className={"btn xs"+(filter===f.k?" blue":"")} onClick={()=>setFilter(f.k)}>{f.l}</button>
+            ))}
+          </div>
+          <button className="btn xs ghost" onClick={load} style={{marginLeft:"auto"}}>↺ Actualiser</button>
+        </div>
+        {errMsg && <div className="err-banner" style={{marginTop:10}}>{errMsg}</div>}
+      </div>
+
+      {loading
+        ? <div style={{padding:20,color:"var(--text-muted)"}}>Chargement...</div>
+        : list.length===0
+          ? <div className="info-banner">Aucun snapshot.</div>
+          : <div className="card" style={{overflow:"hidden"}}>
+            <div style={{display:"grid",gridTemplateColumns:"170px 80px 1fr 100px 200px",background:"var(--os-blue-dark)",padding:"8px 12px",gap:8}}>
+              {["Date","Type","Commentaire","Auteur","Actions"].map((h,i)=>(
+                <div key={i} style={{fontSize:10,fontWeight:600,color:"rgba(255,255,255,.6)",textTransform:"uppercase",letterSpacing:".06em"}}>{h}</div>
+              ))}
+            </div>
+            {list.map(snap=>(
+              <div key={snap.id}
+                style={{display:"grid",gridTemplateColumns:"170px 80px 1fr 100px 200px",padding:"8px 12px",gap:8,
+                  borderBottom:"1px solid var(--border)",alignItems:"center"}}
+                onMouseEnter={e=>e.currentTarget.style.background="var(--panel-2)"}
+                onMouseLeave={e=>e.currentTarget.style.background=""}>
+                <span className="mono" style={{fontSize:11,color:"var(--text-dim)"}}>{snap.at?.replace("T"," ").replace("Z","")}</span>
+                <span style={{display:"inline-block",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:600,
+                  background:kindBadge(snap.kind),color:kindColor(snap.kind)}}>{snap.kind}</span>
+                <span style={{fontSize:12,color:"var(--text-dim)"}}>{snap.comment||<em style={{color:"var(--text-muted)"}}>—</em>}</span>
+                <span style={{fontSize:11,color:"var(--text-muted)"}}>{snap.author}</span>
+                <div style={{display:"flex",gap:4}}>
+                  <button className="btn xs ghost" onClick={()=>viewDiff(snap)}>Comparer</button>
+                  <button className="btn xs ghost" onClick={()=>restore(snap)}>Restaurer</button>
+                  <button className="btn xs ghost danger" onClick={()=>del(snap)}>✕</button>
+                </div>
+              </div>
+            ))}
+          </div>}
+
+      {diffSnap && diffData && (
+        <DiffView snap={diffSnap} snap_data={diffData.snapshot} current={diffData.current}/>
+      )}
+    </div>
+  );
+}
+
+/* ── Dashboard ── */
+function Dashboard() {
+  const [info, setInfo] = useState(null);
+  useEffect(() => {
+    Promise.all([apiFetch('/catalog'), apiFetch('/formulas'), apiFetch('/regions'), apiFetch('/history')])
+      .then(([cat,form,reg,hist]) => setInfo({cat,form,reg,hist}))
+      .catch(() => {});
+  }, []);
+  if (!info) return <div style={{padding:20,color:"var(--text-muted)"}}>Chargement...</div>;
+  const cards = [
+    {label:"Catalogue",  meta:info.cat._meta,  count:`${Object.keys(info.cat.gpu||{}).length} GPU, ${Object.keys(info.cat.vcore||{}).length} génér.`},
+    {label:"Formules RI",meta:info.form._meta, count:`${(info.form.engagements||[]).filter(e=>e.active!==false).length} engagements actifs`},
+    {label:"Régions",    meta:info.reg._meta,  count:`${((info.reg.regions||info.reg).filter(r=>r.active!==false)).length} régions actives`},
+  ];
+  return (
+    <div className="fade-in">
+      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:14}}>
+        {cards.map(c=>(
+          <div key={c.label} className="card" style={{padding:"16px 20px"}}>
+            <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)",marginBottom:4}}>{c.label}</div>
+            <div style={{fontSize:12,color:"var(--text-muted)",marginBottom:8}}>{c.count}</div>
+            {c.meta && <>
+              <div style={{fontSize:11,color:"var(--text-dim)"}}>v{c.meta.version} — {c.meta.updated_at?.slice(0,10)}</div>
+              <div style={{fontSize:11,color:"var(--text-muted)"}}>{c.meta.comment}</div>
+            </>}
+          </div>
+        ))}
+      </div>
+      <div className="card" style={{padding:"16px 20px"}}>
+        <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)",marginBottom:8}}>Derniers snapshots</div>
+        {info.hist.slice(0,5).map(s=>(
+          <div key={s.id} style={{display:"flex",gap:10,alignItems:"center",padding:"5px 0",borderBottom:"1px solid var(--border)"}}>
+            <span className="mono" style={{fontSize:11,color:"var(--text-muted)",flexShrink:0}}>{s.at?.slice(0,16).replace("T"," ")}</span>
+            <span style={{fontSize:11,fontWeight:600,color:"var(--os-blue)",flexShrink:0,minWidth:60}}>{s.kind}</span>
+            <span style={{fontSize:12,color:"var(--text-dim)"}}>{s.comment}</span>
+          </div>
+        ))}
+        {info.hist.length===0 && <div style={{fontSize:12,color:"var(--text-muted)"}}>Aucun snapshot pour l'instant.</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ── AdminApp ── */
+function AdminApp() {
+  const [tab, setTab] = useState("dashboard");
+
+  const logout = () => { localStorage.removeItem(TOKEN_KEY); window.location.reload(); };
+
+  const tabs = [
+    {k:"dashboard", l:"Dashboard"},
+    {k:"catalog",   l:"Catalogue"},
+    {k:"formulas",  l:"Formules RI"},
+    {k:"regions",   l:"Régions"},
+    {k:"history",   l:"Historique"},
+  ];
+
+  return (
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+      <header className="adm-hdr">
+        <div className="adm-hdr-inner">
+          <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+            <img src="/assets/logo-outscale-blanc.svg" alt="OUTSCALE" height="22" style={{display:"block"}}/>
+            <span style={{fontSize:11,fontWeight:600,color:"rgba(255,255,255,.5)",letterSpacing:".1em",textTransform:"uppercase"}}>Admin</span>
+          </div>
+          <div className="vdiv" style={{background:"rgba(255,255,255,.15)",width:1,height:24,flexShrink:0}}/>
+          <nav className="tab-bar">
+            {tabs.map(t=>(
+              <button key={t.k} className={"atab"+(tab===t.k?" on":"")} onClick={()=>setTab(t.k)}>{t.l}</button>
+            ))}
+          </nav>
+          <div style={{flex:1}}/>
+          <a href="/" className="io-btn" style={{textDecoration:"none"}}>← Estimateur</a>
+          <button className="io-btn" onClick={logout}>Déconnexion</button>
+        </div>
+      </header>
+      <main className="adm-main" style={{flex:1}}>
+        {tab==="dashboard" && <Dashboard/>}
+        {tab==="catalog"   && <CatalogTab/>}
+        {tab==="formulas"  && <FormulasTab/>}
+        {tab==="regions"   && <RegionsTab/>}
+        {tab==="history"   && <HistoryTab/>}
+      </main>
+    </div>
+  );
+}
+
+/* ── Root ── */
+function Root() {
+  const [loggedIn, setLoggedIn] = useState(!!getToken());
+  if (!loggedIn) return <LoginPage onLogin={()=>setLoggedIn(true)}/>;
+  return <AdminApp/>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Root/>);
+</script>
+</body>
+</html>
