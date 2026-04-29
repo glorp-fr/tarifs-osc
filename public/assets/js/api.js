@@ -3,6 +3,7 @@ window.OSApi = (() => {
 
   const BASE = '/api';
   const LS   = { catalog:'osc:catalog', regions:'osc:regions', formulas:'osc:formulas' };
+  const TOKEN_KEY = 'osc:token';
 
   /* Valeurs par défaut embarquées (utilisées uniquement si l'API ET le cache localStorage sont absents) */
   const DEFAULT_REGIONS = [
@@ -26,6 +27,38 @@ window.OSApi = (() => {
     {id:"ri-3y-yearly",    label:"RI 3 ans annuel (-56%)",       discount:0.56, active:true},
   ];
 
+  /* ── Auth helpers ──────────────────────────────────────────────────────────── */
+  function getToken()      { try { return localStorage.getItem(TOKEN_KEY)||""; } catch { return ""; } }
+  function setToken(t)     { try { localStorage.setItem(TOKEN_KEY, t); } catch {} }
+  function clearToken()    { try { localStorage.removeItem(TOKEN_KEY); } catch {} }
+
+  function parseToken(token) {
+    try {
+      const p = JSON.parse(atob((token||"").split('.')[1]||"{}"));
+      return (p.exp && p.exp > Date.now()/1000) ? p : null;
+    } catch { return null; }
+  }
+
+  /* Fetch authentifié — retourne null si 401 (token expiré) */
+  async function apiFetch(path, opts={}) {
+    const token = getToken();
+    const r = await fetch(BASE+path, {
+      ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? {'Authorization': `Bearer ${token}`} : {}),
+        ...(opts.headers||{}),
+      },
+    });
+    if (r.status === 401) { clearToken(); return null; }
+    if (!r.ok) {
+      const e = await r.json().catch(()=>({error:`HTTP ${r.status}`}));
+      throw new Error(e.error||`HTTP ${r.status}`);
+    }
+    return r.json();
+  }
+
+  /* ── Chargement catalogue/régions/formules ────────────────────────────────── */
   async function fetchJson(url) {
     const r = await fetch(url);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -48,7 +81,7 @@ window.OSApi = (() => {
     } catch {
       const cached = lsGet(LS.catalog);
       if (cached) return cached;
-      return null; // App will use embedded fallback
+      return null;
     }
   }
 
@@ -85,5 +118,8 @@ window.OSApi = (() => {
     return { catalog, regions, engagements };
   }
 
-  return { loadAll, DEFAULT_REGIONS, DEFAULT_ENGAGEMENTS };
+  return {
+    loadAll, DEFAULT_REGIONS, DEFAULT_ENGAGEMENTS,
+    TOKEN_KEY, getToken, setToken, clearToken, parseToken, apiFetch,
+  };
 })();

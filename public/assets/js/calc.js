@@ -53,45 +53,50 @@ window.OSCalc = (() => {
   ];
 
   /* regions  : array of {id, flag, short, name}
-     engagements : array of {id, label, discount} */
+     engagements : array of {id, label, discount, applies_to} */
   function calcLine(line, C, regionId, regions, engagements) {
-    const ri   = Math.max(0, regions.findIndex(r => r.id === regionId));
-    const eng  = engagements.find(e => e.id === (line.engagement || "on-demand")) || engagements[0];
-    const disc = eng.discount ?? eng.d ?? 0;
-    const hpm  = C.hours_per_month || HPM;
-    const usage = parseFloat(line.usage ?? 1) || 1;
+    const ri       = Math.max(0, regions.findIndex(r => r.id === regionId));
+    const eng      = engagements.find(e => e.id === (line.engagement || "on-demand")) || engagements[0];
+    const disc     = eng.discount ?? eng.d ?? 0;
+    const appliesTo = eng.applies_to || ["cpu", "ram", "gpu"];
+    const hpm      = C.hours_per_month || HPM;
+    const usage    = parseFloat(line.usage ?? 1) || 1;
     let monthly = 0, detail = "", group = line.type, setup = 0;
 
     switch (line.type) {
       case "compute": {
-        const vt  = C.vcore[line.cpu_gen] || C.vcore.v7;
+        const vt   = C.vcore[line.cpu_gen] || C.vcore.v7;
         const vcUO = (vt[line.perf || "high"] || vt.high)[ri] || 0;
         const ded  = line.dedicated ? (1 + (C.dedicated_surcharge || 0.10)) : 1.0;
+        const cpuD = appliesTo.includes("cpu") ? disc : 0;
+        const ramD = appliesTo.includes("ram") ? disc : 0;
         let stoM   = 0;
         if (line.storage_type && Number(line.storage_gb) > 0) {
           const s = C.storage[line.storage_type];
           if (s) stoM = ((s.gb[ri]||0) * Number(line.storage_gb) + (s.iops[ri]||0) * Number(line.iops||0)) * Number(line.qty||1);
         }
-        monthly = (Number(line.vcore||0)*vcUO + Number(line.ram||0)*(C.ram[ri]||0)) * Number(line.qty||1) * hpm * usage * (1-disc) * ded + stoM;
+        monthly = (Number(line.vcore||0)*vcUO*(1-cpuD) + Number(line.ram||0)*(C.ram[ri]||0)*(1-ramD)) * Number(line.qty||1) * hpm * usage * ded + stoM;
         detail  = `${line.qty}x${line.vcore}vC.${line.ram}GiB ${line.cpu_gen}/${line.perf}` + (line.dedicated?" ded":"") + ` ${eng.label}`;
         break;
       }
-      case "dedicated-access":
-        monthly = (C.ded_fee[ri]||0) * hpm * Number(line.qty||1) * usage * (1-disc);
+      case "dedicated-access": {
+        const cpuD = appliesTo.includes("cpu") ? disc : 0;
+        monthly = (C.ded_fee[ri]||0) * hpm * Number(line.qty||1) * usage * (1-cpuD);
         detail  = `${line.qty}x acces dedicated ${fE(C.ded_fee[ri]||0,3)}/h`;
         break;
+      }
       case "gpu": {
-        const pa    = C.gpu[line.gpu_type];
-        const p     = pa ? (pa[ri]||0) : 0;
+        const pa     = C.gpu[line.gpu_type];
+        const p      = pa ? (pa[ri]||0) : 0;
         const gpuCap = C.gpu_ri_cap ?? 0.30;
-        const gDisc = Math.min(disc, gpuCap);
+        const gDisc  = appliesTo.includes("gpu") ? Math.min(disc, gpuCap) : 0;
         monthly = p * Number(line.gpu_qty||0) * hpm * usage * (1-gDisc);
-        detail  = `${line.gpu_qty}x${line.gpu_type}` + (disc > gpuCap ? ` cap${Math.round(gpuCap*100)}%` : "") + ` ${eng.label}`;
+        detail  = `${line.gpu_qty}x${line.gpu_type}` + (appliesTo.includes("gpu") && disc > gpuCap ? ` cap${Math.round(gpuCap*100)}%` : "") + ` ${eng.label}`;
         break;
       }
       case "oks": {
         const p = (C.oks[line.cp] || C.oks["cp.3.masters.small"])[ri] || 0;
-        monthly = p * hpm * Number(line.qty||1) * usage * (1-disc);
+        monthly = p * hpm * Number(line.qty||1) * usage;
         detail  = `${line.qty}x${line.cp}`;
         break;
       }
@@ -101,10 +106,12 @@ window.OSCalc = (() => {
         detail  = `${line.qty}x${line.storage_gb}GiB ${line.storage_type}`;
         break;
       }
-      case "oos":
-        monthly = (C.oos.gb[ri]||0) * Number(line.storage_gb||0);
-        detail  = `${line.storage_gb}GiB`;
+      case "oos": {
+        const tier = C.oos[line.oos_type||"Standard"] || Object.values(C.oos||{})[0] || [];
+        monthly = (tier[ri]||0) * Number(line.storage_gb||0);
+        detail  = `${line.storage_gb}GiB${line.oos_type && line.oos_type!=="Standard" ? ` ${line.oos_type}` : ""}`;
         break;
+      }
       case "net": {
         const t = line.net_type || "", q = Number(line.net_qty||0);
         if      (t.startsWith("VPN"))      monthly = (C.vpn[ri]||0)*q*hpm;

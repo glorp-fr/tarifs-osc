@@ -5,6 +5,99 @@
     "updated_by": "admin",
     "comment": "tarif Avril 2026"
   },
+  "_availability": {
+    "gpu.Nvidia A10": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "gpu.Nvidia A100-80": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "gpu.Nvidia V100": [
+      true,
+      false,
+      true,
+      true,
+      true
+    ],
+    "oks.cp.3.masters.large": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "oks.cp.3.masters.medium": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "oks.cp.3.masters.small": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "oks.cp.mono.master": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "hdl_1gbps": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "hdl_10gbps": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "hdl_setup": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "lic.Oracle Linux OS (par VM)": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "lic.Red Hat Enterprise Linux OS (par VM)": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "oos.Archive": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
   "ded_fee": [
     2,
     2.4,
@@ -263,12 +356,19 @@
     ]
   },
   "oos": {
-    "gb": [
+    "Standard": [
       0.025,
       0.03,
       0.025,
       0.025,
       0.025
+    ],
+    "Archive": [
+      0,
+      0,
+      0,
+      0,
+      0
     ]
   },
   "ram": [

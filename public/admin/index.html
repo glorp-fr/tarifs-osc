@@ -13,25 +13,23 @@
 <link rel="stylesheet" href="/assets/style.css">
 <style>
 .adm-hdr{background:var(--os-blue-dark);border-bottom:3px solid var(--os-orange);position:sticky;top:0;z-index:50}
-.adm-hdr-inner{max-width:1400px;margin:0 auto;padding:0 20px;height:52px;display:flex;align-items:center;gap:12px}
+.adm-hdr-inner{padding:0 20px;height:56px;display:flex;align-items:center;gap:12px}
 .adm-main{max-width:1400px;margin:0 auto;padding:20px}
 .tab-bar{display:flex;gap:2px;background:rgba(0,0,0,.2);border-radius:8px;padding:3px}
 .atab{padding:5px 14px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;color:rgba(255,255,255,.65);transition:all .15s;border:none;background:none;font-family:inherit;white-space:nowrap}
 .atab:hover{color:#fff;background:rgba(255,255,255,.1)}
 .atab.on{color:var(--os-blue-dark);background:#fff}
-/* Catalogue grid */
 .cat-section{padding:7px 12px 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--os-blue);background:var(--os-blue-pale);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
 .cat-inp{width:88px;background:var(--panel);border:1px solid var(--border);border-radius:5px;padding:4px 6px;font-family:'DM Mono',monospace;font-size:12px;color:var(--text);transition:border-color .15s}
 .cat-inp:focus{outline:none;border-color:var(--os-blue);box-shadow:0 0 0 2px rgba(0,83,134,.1)}
 .cat-inp.dirty{border-color:var(--os-orange);background:var(--os-orange-pale)}
 .cat-inp.fresh{border-color:var(--ok);background:var(--ok-bg)}
-/* History diff */
 .diff-add{background:#dcfce7;color:#166534}
 .diff-del{background:#fee2e2;color:#991b1b}
 .diff-chg{background:#fef9c3;color:#713f12}
-/* Login */
 .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)}
 .login-card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:36px 40px;width:360px;box-shadow:0 8px 32px rgba(0,83,134,.08)}
+.sb-btn.on{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.45);color:#fff;font-weight:600}
 </style>
 </head>
 <body>
@@ -40,10 +38,17 @@
 const {useState, useEffect, useMemo, useRef, useCallback} = React;
 
 const API = '/api';
-const TOKEN_KEY = 'osc:admin_token';
+const TOKEN_KEY = 'osc:token'; // clé partagée avec l'appli principale
 
-/* ── Helpers API ── */
+/* ── Helpers ── */
 function getToken() { return localStorage.getItem(TOKEN_KEY)||""; }
+
+function parseTokenRole(token) {
+  try {
+    const p = JSON.parse(atob(token.split('.')[1]));
+    return (p.exp > Date.now()/1000) ? p.role : null;
+  } catch { return null; }
+}
 
 async function apiFetch(path, opts={}) {
   const token = getToken();
@@ -51,15 +56,16 @@ async function apiFetch(path, opts={}) {
     ...opts,
     headers: {'Content-Type':'application/json', 'Authorization':`Bearer ${token}`, ...(opts.headers||{})},
   });
-  if (r.status === 401) { localStorage.removeItem(TOKEN_KEY); window.location.reload(); }
+  if (r.status === 401 || r.status === 403) { localStorage.removeItem(TOKEN_KEY); window.location.reload(); }
   if (!r.ok) { const e = await r.json().catch(()=>({error:`HTTP ${r.status}`})); throw new Error(e.error||`HTTP ${r.status}`); }
   return r.json();
 }
 
 function fE(v, d=0) { return (v||0).toLocaleString("fr-FR",{minimumFractionDigits:d,maximumFractionDigits:d})+" EUR"; }
 function fp(v, d=4) { return parseFloat((v||0).toFixed(d)); }
-
 const FLAG = {FR:"🇫🇷",US:"🇺🇸",JP:"🇯🇵"};
+const ROLE_CLS   = {admin:"b-oks", outscale:"b-comp", prospect:"b-bsu"};
+const ROLE_LABEL = {admin:"Admin", outscale:"Outscale", prospect:"Prospect"};
 
 /* ── LoginPage ── */
 function LoginPage({onLogin}) {
@@ -75,6 +81,7 @@ function LoginPage({onLogin}) {
         method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({password:pwd}),
       }).then(async r => { const d=await r.json(); if(!r.ok) throw new Error(d.error); return d; });
+      if (parseTokenRole(token) !== 'admin') { setErr("Ce compte n'a pas les droits administrateur."); setBusy(false); return; }
       localStorage.setItem(TOKEN_KEY, token);
       onLogin();
     } catch(e) {
@@ -92,7 +99,7 @@ function LoginPage({onLogin}) {
         </div>
         <form onSubmit={submit}>
           <div style={{marginBottom:14}}>
-            <div className="lbl">Mot de passe</div>
+            <div className="lbl">Mot de passe admin</div>
             <input type="password" className="inp" value={pwd} onChange={e=>setPwd(e.target.value)}
               placeholder="••••••••" autoFocus style={{fontSize:15}}/>
           </div>
@@ -110,21 +117,41 @@ function LoginPage({onLogin}) {
 }
 
 /* ── Composant ligne prix (catalogue) ── */
-function PriceRow({label, bk, arr, regionIds, edits, onEdit, saved}) {
+function PriceRow({label, bk, arr, regionIds, edits, onEdit, saved, avails, availKey, onToggleAvail, deletable, onDelete}) {
   return (
-    <div style={{display:"grid",gridTemplateColumns:`minmax(220px,2fr) repeat(${arr.length},100px)`,background:"var(--panel)",borderBottom:"1px solid var(--border)"}}>
-      <div style={{padding:"6px 10px",color:"var(--text-dim)",fontSize:12.5,alignSelf:"center"}}>{label}</div>
+    <div style={{display:"grid",gridTemplateColumns:`minmax(220px,2fr) repeat(${arr.length},108px)`,background:"var(--panel)",borderBottom:"1px solid var(--border)"}}>
+      <div style={{padding:"6px 10px",color:"var(--text-dim)",fontSize:12.5,alignSelf:"center",display:"flex",alignItems:"center",gap:4}}>
+        <span style={{flex:1}}>{label}</span>
+        {deletable && <button onClick={onDelete} title="Supprimer ce service"
+          style={{background:"none",border:"none",cursor:"pointer",color:"#dc2626",fontSize:16,lineHeight:1,padding:"0 4px",fontWeight:700,opacity:.6}}
+          onMouseEnter={e=>e.target.style.opacity=1} onMouseLeave={e=>e.target.style.opacity=.6}>×</button>}
+      </div>
       {arr.map((v, i) => {
-        const k = `${bk}__${i}`;
-        const isDirty  = edits[k] !== undefined;
-        const wasSaved = !isDirty && saved[k] !== undefined;
-        const display  = isDirty ? edits[k] : (v===0?"0":String(fp(v,4)));
+        const pk = `${bk}__${i}`;
+        const isDirty  = edits[pk] !== undefined;
+        const wasSaved = !isDirty && saved[pk] !== undefined;
+        const display  = isDirty ? edits[pk] : (v===0?"0":String(fp(v,4)));
+        const curAvail = avails[availKey] ? avails[availKey][i] !== false : true;
         return (
-          <div key={i} style={{padding:"4px 6px"}}>
+          <div key={i} style={{padding:"3px 5px",display:"flex",flexDirection:"column",gap:2}}>
+            <button
+              onClick={() => onToggleAvail(availKey, i, !curAvail)}
+              title={curAvail ? `Désactiver ${regionIds[i]}` : `Activer ${regionIds[i]}`}
+              style={{
+                fontSize:9,padding:"1px 5px",borderRadius:3,border:"1px solid",cursor:"pointer",
+                fontWeight:700,fontFamily:"inherit",whiteSpace:"nowrap",transition:"all .12s",
+                background: curAvail ? "rgba(22,163,74,.1)" : "rgba(0,0,0,.04)",
+                borderColor: curAvail ? "rgba(22,163,74,.45)" : "var(--border,#e2e8f0)",
+                color: curAvail ? "#166534" : "var(--text-muted)",
+              }}>
+              {curAvail ? "ON" : "OFF"}
+            </button>
             <input className={"cat-inp"+(isDirty?" dirty":wasSaved?" fresh":"")}
               value={display}
-              onChange={e => onEdit(k, e.target.value)}
-              title={`${regionIds[i]}: ${v}`}/>
+              onChange={e => curAvail && onEdit(pk, e.target.value)}
+              title={`${regionIds[i]}: ${v}`}
+              readOnly={!curAvail}
+              style={!curAvail ? {opacity:.35,cursor:"not-allowed"} : {}}/>
           </div>
         );
       })}
@@ -132,25 +159,204 @@ function PriceRow({label, bk, arr, regionIds, edits, onEdit, saved}) {
   );
 }
 
+/* ── Formulaire ajout de service ── */
+function AddServiceRow({regions, onAdd, placeholder="Nom du service", withIops=false}) {
+  const nR = regions.length;
+  const [name,   setName]   = useState("");
+  const [prices, setPrices] = useState(() => Array(nR).fill(""));
+  const [iops,   setIops]   = useState(() => Array(nR).fill(""));
+  const setP = (i, v) => setPrices(a => { const r=[...a]; r[i]=v; return r; });
+  const setI = (i, v) => setIops(a => { const r=[...a]; r[i]=v; return r; });
+  const handleAdd = () => {
+    if (!name.trim()) return;
+    onAdd(name.trim(), prices.map(p => parseFloat(p)||0), withIops ? iops.map(p => parseFloat(p)||0) : null);
+    setName(""); setPrices(Array(nR).fill("")); setIops(Array(nR).fill(""));
+  };
+  return (
+    <div style={{display:"grid",gridTemplateColumns:`minmax(220px,2fr) repeat(${nR},108px) auto`,background:"var(--os-blue-pale,#eef4fb)",borderBottom:"1px solid var(--border)"}}>
+      <div style={{padding:"4px 10px",display:"flex",alignItems:"center"}}>
+        <input className="inp" value={name} onChange={e=>setName(e.target.value)}
+          placeholder={placeholder} style={{fontSize:12,padding:"3px 7px",flex:1}}
+          onKeyDown={e=>e.key==="Enter"&&handleAdd()}/>
+      </div>
+      {regions.map((r, i) => (
+        <div key={i} style={{padding:"3px 5px",display:"flex",flexDirection:"column",gap:2}}>
+          <input className="cat-inp" value={prices[i]} onChange={e=>setP(i,e.target.value)} placeholder="0" title={r.id} style={{fontSize:11}}/>
+          {withIops && <input className="cat-inp" value={iops[i]} onChange={e=>setI(i,e.target.value)} placeholder="IOPS" style={{fontSize:11,borderColor:"rgba(0,83,134,.3)"}}/>}
+        </div>
+      ))}
+      <div style={{padding:"4px 8px",display:"flex",alignItems:"center"}}>
+        <button className="btn blue" onClick={handleAdd} disabled={!name.trim()} style={{fontSize:11,padding:"4px 10px"}}>+ Ajouter</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Formulaire ajout génération vCore ── */
+function AddVcoreRow({regions, onAdd}) {
+  const nR = regions.length;
+  const PERF = ["medium","high","highest"];
+  const PERF_LABELS = {medium:"medium (p3)", high:"high (p2)", highest:"highest (p1)"};
+  const [name,   setName]   = useState("");
+  const [prices, setPrices] = useState(() => Object.fromEntries(PERF.map(p=>[p,Array(nR).fill("")])));
+  const setP = (perf,i,v) => setPrices(prev=>({...prev,[perf]:prev[perf].map((x,j)=>j===i?v:x)}));
+  const handleAdd = () => {
+    if (!name.trim()) return;
+    const ps = Object.fromEntries(PERF.map(p=>[p, prices[p].map(v=>parseFloat(v)||0)]));
+    onAdd(name.trim(), ps);
+    setName(""); setPrices(Object.fromEntries(PERF.map(p=>[p,Array(nR).fill("")])));
+  };
+  return (
+    <div style={{background:"var(--os-blue-pale,#eef4fb)",borderBottom:"1px solid var(--border)"}}>
+      <div style={{display:"grid",gridTemplateColumns:`minmax(220px,2fr) repeat(${nR},108px) auto`}}>
+        <div style={{padding:"4px 10px",display:"flex",alignItems:"center",gap:6}}>
+          <input className="inp" value={name} onChange={e=>setName(e.target.value)}
+            placeholder="ID génération (ex: v8)" style={{fontSize:12,padding:"3px 7px",flex:1}}
+            onKeyDown={e=>e.key==="Enter"&&handleAdd()}/>
+          <button className="btn blue" onClick={handleAdd} disabled={!name.trim()} style={{fontSize:11,padding:"4px 10px",whiteSpace:"nowrap"}}>+ Ajouter</button>
+        </div>
+        {regions.map(r=><div key={r.id} style={{padding:"2px 5px",textAlign:"center",fontSize:9,color:"var(--text-muted)",alignSelf:"center"}}>{FLAG[r.flag]||""} {r.short}</div>)}
+        <div/>
+      </div>
+      {PERF.map(perf=>(
+        <div key={perf} style={{display:"grid",gridTemplateColumns:`minmax(220px,2fr) repeat(${nR},108px) auto`,borderTop:"1px solid var(--border)"}}>
+          <div style={{padding:"2px 10px 2px 28px",fontSize:11,color:"var(--text-dim)",alignSelf:"center"}}>↳ {PERF_LABELS[perf]}</div>
+          {regions.map((r,i)=>(
+            <div key={i} style={{padding:"2px 5px"}}>
+              <input className="cat-inp" value={prices[perf][i]} onChange={e=>setP(perf,i,e.target.value)} placeholder="0" style={{fontSize:11}}/>
+            </div>
+          ))}
+          <div/>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ── CatalogTab ── */
 function CatalogTab() {
-  const [data, setData]     = useState(null);
+  const [data,    setData]    = useState(null);
   const [regions, setRegions] = useState([]);
-  const [edits, setEdits]   = useState({});
-  const [saved, setSaved]   = useState({});
+  const [edits,   setEdits]   = useState({});
+  const [saved,   setSaved]   = useState({});
+  const [avails,  setAvails]  = useState({});
+  const [dirty,   setDirty]   = useState(false);
   const [comment, setComment] = useState("");
-  const [status, setStatus] = useState("idle"); // idle|saving|ok|err
-  const [errMsg, setErrMsg] = useState("");
+  const [status,  setStatus]  = useState("idle");
+  const [errMsg,  setErrMsg]  = useState("");
 
   useEffect(() => {
     Promise.all([apiFetch('/catalog'), apiFetch('/regions')])
-      .then(([cat, reg]) => { setData(cat); setRegions((reg.regions||reg).filter(r=>r.active!==false)); })
+      .then(([cat, reg]) => {
+        setData(cat);
+        setRegions((reg.regions||reg).filter(r=>r.active!==false));
+        // Init avails from _availability or derive from prices
+        const a = cat._availability ? {...cat._availability} : {};
+        for (const [n, arr] of Object.entries(cat.gpu||{})) {
+          if (!a[`gpu.${n}`] && arr.some(v=>v===0)) a[`gpu.${n}`] = arr.map(v=>v>0);
+        }
+        for (const [n, arr] of Object.entries(cat.oks||{})) {
+          if (!a[`oks.${n}`] && arr.some(v=>v===0)) a[`oks.${n}`] = arr.map(v=>v>0);
+        }
+        for (const [n, s] of Object.entries(cat.storage||{})) {
+          if (!a[`storage.${n}`] && (s.gb||[]).some(v=>v===0)) a[`storage.${n}`] = (s.gb||[]).map(v=>v>0);
+        }
+        for (const [n, l] of Object.entries(cat.lic||{})) {
+          if (!a[`lic.${n}`] && (l.price||[]).some(v=>v===0)) a[`lic.${n}`] = (l.price||[]).map(v=>v>0);
+        }
+        for (const [n, arr] of Object.entries(cat.oos||{})) {
+          if (!a[`oos.${n}`] && Array.isArray(arr) && arr.some(v=>v===0)) a[`oos.${n}`] = arr.map(v=>v>0);
+        }
+        for (const [gen, perfs] of Object.entries(cat.vcore||{})) {
+          const hArr = perfs.high || [];
+          if (!a[`vcore.${gen}`] && hArr.some(v=>v===0)) a[`vcore.${gen}`] = hArr.map(v=>v>0);
+        }
+        for (const bk of ['hdl_1gbps','hdl_10gbps','hdl_setup']) {
+          if (!a[bk] && (cat[bk]||[]).some(v=>v===0)) a[bk] = (cat[bk]||[]).map(v=>v>0);
+        }
+        setAvails(a);
+      })
       .catch(e => setErrMsg(e.message));
   }, []);
 
   const setE = (k, v) => setEdits(e => ({...e, [k]:v}));
   const dirtyCount = Object.keys(edits).length;
   const regionIds  = regions.map(r => r.id);
+
+  const toggleAvail = (availKey, ri, newVal) => {
+    setAvails(prev => {
+      const curArr = prev[availKey] || Array(regions.length).fill(true);
+      const newArr = [...curArr];
+      newArr[ri] = newVal;
+      return {...prev, [availKey]: newArr};
+    });
+    setDirty(true);
+  };
+
+  const deleteService = (cat, name) => {
+    if (!confirm(`Supprimer "${name}" du catalogue ?`)) return;
+    setData(prev => {
+      const nc = JSON.parse(JSON.stringify(prev));
+      const node = cat === 'storage' ? nc.storage : (cat === 'lic' ? nc.lic : nc[cat]);
+      delete node[name];
+      return nc;
+    });
+    const ak = `${cat}.${name}`;
+    setAvails(prev => { const a={...prev}; delete a[ak]; return a; });
+    const pfxs = cat === 'storage'
+      ? [`stor_gb__${name}__`, `stor_iops__${name}__`]
+      : [`${cat}__${name}__`];
+    setEdits(prev => {
+      const e={...prev};
+      for (const k of Object.keys(e)) if (pfxs.some(p=>k.startsWith(p))) delete e[k];
+      return e;
+    });
+    setDirty(true);
+  };
+
+  const addService = (cat, name, prices, iopsArr) => {
+    if (!name) return;
+    setData(prev => {
+      const nc = JSON.parse(JSON.stringify(prev));
+      if      (cat === 'gpu')     nc.gpu[name] = prices;
+      else if (cat === 'oks')     nc.oks[name] = prices;
+      else if (cat === 'storage') nc.storage[name] = {gb: prices, iops: iopsArr || Array(prices.length).fill(0)};
+      else if (cat === 'lic')     nc.lic[name] = {base:"h", price: prices};
+      else if (cat === 'oos')     nc.oos[name] = prices;
+      return nc;
+    });
+    const avail = prices.map(v => v > 0);
+    if (avail.some(v => !v)) setAvails(prev => ({...prev, [`${cat}.${name}`]: avail}));
+    setDirty(true);
+  };
+
+  const addVcore = (name, perfsObj) => {
+    if (!name) return;
+    setData(prev => {
+      const nc = JSON.parse(JSON.stringify(prev));
+      nc.vcore[name] = perfsObj;
+      return nc;
+    });
+    const avail = (perfsObj.high||[]).map(v => v > 0);
+    if (avail.some(v => !v)) setAvails(prev => ({...prev, [`vcore.${name}`]: avail}));
+    setDirty(true);
+  };
+
+  const deleteVcore = (gen) => {
+    if (!confirm(`Supprimer la génération CPU "${gen}" et tous ses niveaux de performance ?`)) return;
+    setData(prev => {
+      const nc = JSON.parse(JSON.stringify(prev));
+      delete nc.vcore[gen];
+      return nc;
+    });
+    setAvails(prev => { const a={...prev}; delete a[`vcore.${gen}`]; return a; });
+    setEdits(prev => {
+      const e={...prev};
+      for (const k of Object.keys(e)) if (k.startsWith(`vcore__${gen}__`)) delete e[k];
+      return e;
+    });
+    setDirty(true);
+  };
 
   const buildPayload = () => {
     const nc = JSON.parse(JSON.stringify(data));
@@ -164,7 +370,7 @@ function CatalogTab() {
         else if (parts[0]==="oks")         nc.oks[parts[1]][+parts[2]]=val;
         else if (parts[0]==="stor_gb")     nc.storage[parts[1]].gb[+parts[2]]=val;
         else if (parts[0]==="stor_iops")   nc.storage[parts[1]].iops[+parts[2]]=val;
-        else if (parts[0]==="oos")         nc.oos.gb[+parts[1]]=val;
+        else if (parts[0]==="oos")         nc.oos[parts[1]][+parts[2]]=val;
         else if (parts[0]==="vpn")         nc.vpn[+parts[1]]=val;
         else if (parts[0]==="nat")         nc.nat[+parts[1]]=val;
         else if (parts[0]==="lbu")         nc.lbu[+parts[1]]=val;
@@ -181,6 +387,7 @@ function CatalogTab() {
         else if (parts[0]==="const_hpm")   nc.hours_per_month=val;
       } catch {}
     }
+    nc._availability = {...avails};
     return nc;
   };
 
@@ -191,8 +398,10 @@ function CatalogTab() {
       const payload = buildPayload();
       payload._comment = comment;
       await apiFetch('/catalog', {method:'PUT', body:JSON.stringify(payload)});
-      setData(buildPayload());
-      setSaved({...edits}); setEdits({}); setComment("");
+      const saved_payload = buildPayload();
+      setData(saved_payload);
+      setAvails(saved_payload._availability || {});
+      setSaved({...edits}); setEdits({}); setComment(""); setDirty(false);
       setStatus("ok"); setTimeout(()=>setStatus("idle"), 4000);
     } catch(e) { setErrMsg(e.message); setStatus("err"); }
   };
@@ -201,19 +410,21 @@ function CatalogTab() {
   if (!data) return <div style={{padding:20,color:"var(--text-muted)"}}>Chargement...</div>;
 
   const rh = () => (
-    <div style={{display:"grid",gridTemplateColumns:`minmax(220px,2fr) repeat(${regions.length},100px)`,background:"var(--os-blue-dark)",padding:"6px 0"}}>
+    <div style={{display:"grid",gridTemplateColumns:`minmax(220px,2fr) repeat(${regions.length},108px)`,background:"var(--os-blue-dark)",padding:"6px 0"}}>
       <div style={{padding:"0 10px",fontSize:10,fontWeight:600,color:"rgba(255,255,255,.5)",textTransform:"uppercase",letterSpacing:".06em",alignSelf:"center"}}>Service</div>
       {regions.map(r => <div key={r.id} style={{textAlign:"center",fontSize:10,fontWeight:600,color:"rgba(255,255,255,.85)",padding:"2px 4px"}}>{FLAG[r.flag]||""}<br/><span style={{fontSize:9,color:"rgba(255,255,255,.55)"}}>{r.short}</span></div>)}
     </div>
   );
 
-  const pr = (label, bk, arr) => (
-    <PriceRow key={bk} label={label} bk={bk} arr={arr} regionIds={regionIds} edits={edits} onEdit={setE} saved={saved}/>
+  const pr = (label, bk, arr, {availKey, deletable, onDelete}={}) => (
+    <PriceRow key={bk} label={label} bk={bk} arr={arr} regionIds={regionIds}
+      edits={edits} onEdit={setE} saved={saved}
+      avails={avails} availKey={availKey||bk} onToggleAvail={toggleAvail}
+      deletable={deletable} onDelete={onDelete}/>
   );
 
   return (
     <div className="fade-in">
-      {/* Barre d'action */}
       <div className="card" style={{marginBottom:14,padding:"12px 16px"}}>
         <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
           <div style={{flex:1}}>
@@ -223,15 +434,14 @@ function CatalogTab() {
             </div>
           </div>
           <input className="inp" style={{maxWidth:320}} placeholder="Commentaire obligatoire…" value={comment} onChange={e=>setComment(e.target.value)}/>
-          <button className="btn orange" disabled={dirtyCount===0||status==="saving"} onClick={save}>
-            {status==="saving"?"Sauvegarde...":`Sauvegarder (${dirtyCount} modif.)`}
+          <button className="btn orange" disabled={(dirtyCount===0&&!dirty)||status==="saving"} onClick={save}>
+            {status==="saving"?"Sauvegarde...":`Sauvegarder${dirtyCount>0?` (${dirtyCount})`:dirty?" (*)":""}`}
           </button>
         </div>
         {status==="ok"  && <div className="ok-banner"  style={{marginTop:10}}>Catalogue sauvegardé — snapshot créé.</div>}
         {errMsg         && <div className="err-banner" style={{marginTop:10}}>{errMsg}</div>}
       </div>
 
-      {/* Constantes */}
       <div className="card" style={{marginBottom:14,overflow:"hidden"}}>
         <div className="cat-section">Constantes de calcul</div>
         <div style={{padding:"10px 12px",display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:10}}>
@@ -251,44 +461,68 @@ function CatalogTab() {
         </div>
       </div>
 
-      {/* Grille tarifaire */}
       <div className="card" style={{overflow:"hidden"}}>
         {rh()}
         <div style={{overflowY:"auto",maxHeight:"calc(100vh - 340px)"}} className="scroll">
           <div className="cat-section">RAM (EUR/GiB/h)</div>
-          {pr("RAM /GiB/h","ram",data.ram)}
+          {pr("RAM /GiB/h","ram",data.ram, {availKey:"ram"})}
           <div className="cat-section">Accès Dedicated (EUR/h)</div>
-          {pr("Acces FCU Dedicated /h","ded_fee",data.ded_fee)}
+          {pr("Acces FCU Dedicated /h","ded_fee",data.ded_fee, {availKey:"ded_fee"})}
           <div className="cat-section">vCore (EUR/h)</div>
-          {Object.entries(data.vcore||{}).map(([gen,perfs]) =>
-            Object.entries(perfs).map(([perf,arr]) =>
-              pr(`${gen} — ${perf}`, `vcore__${gen}__${perf}`, arr)
-            )
-          )}
+          {Object.entries(data.vcore||{}).map(([gen,perfs]) => {
+            const perfEntries = Object.entries(perfs);
+            return <React.Fragment key={gen}>
+              {perfEntries.map(([perf,arr], pidx) =>
+                pr(`${gen} — ${perf}`, `vcore__${gen}__${perf}`, arr, {
+                  availKey:`vcore.${gen}`,
+                  deletable: pidx === 0,
+                  onDelete:  pidx === 0 ? ()=>deleteVcore(gen) : undefined
+                })
+              )}
+            </React.Fragment>;
+          })}
+          <AddVcoreRow regions={regions} onAdd={addVcore}/>
           <div className="cat-section">GPU (EUR/h)</div>
-          {Object.entries(data.gpu||{}).map(([name,arr]) => pr(name, `gpu__${name}`, arr))}
+          {Object.entries(data.gpu||{}).map(([name,arr]) =>
+            pr(name, `gpu__${name}`, arr, {availKey:`gpu.${name}`, deletable:true, onDelete:()=>deleteService('gpu',name)})
+          )}
+          <AddServiceRow regions={regions} onAdd={(n,ps)=>addService('gpu',n,ps,null)} placeholder="Nom du GPU (ex: Nvidia RTX 5090)"/>
           <div className="cat-section">OKS Control Plane (EUR/h)</div>
-          {Object.entries(data.oks||{}).map(([name,arr]) => pr(name, `oks__${name}`, arr))}
+          {Object.entries(data.oks||{}).map(([name,arr]) =>
+            pr(name, `oks__${name}`, arr, {availKey:`oks.${name}`, deletable:true, onDelete:()=>deleteService('oks',name)})
+          )}
+          <AddServiceRow regions={regions} onAdd={(n,ps)=>addService('oks',n,ps,null)} placeholder="ID du plan OKS (ex: cp.new.plan)"/>
           <div className="cat-section">Stockage BSU (EUR/GiB/mois)</div>
           {Object.entries(data.storage||{}).map(([name,s]) => <React.Fragment key={name}>
-            {pr(`${name} — GiB`, `stor_gb__${name}`, s.gb)}
-            {(s.iops||[]).some(v=>v>0) && pr(`${name} — IOPS`, `stor_iops__${name}`, s.iops)}
+            {pr(`${name} — GiB`, `stor_gb__${name}`, s.gb, {availKey:`storage.${name}`, deletable:true, onDelete:()=>deleteService('storage',name)})}
+            {(s.iops||[]).some(v=>v>0) && pr(`${name} — IOPS`, `stor_iops__${name}`, s.iops, {availKey:`storage.${name}`})}
           </React.Fragment>)}
+          <AddServiceRow regions={regions} onAdd={(n,ps,is)=>addService('storage',n,ps,is)} placeholder="Nom BSU (ex: BSU Turbo (tp1))" withIops={true}/>
           <div className="cat-section">Stockage objet OOS (EUR/GiB/mois)</div>
-          {pr("OOS /GiB","oos",data.oos?.gb||[])}
+          {Object.entries(data.oos||{}).map(([name,arr]) =>
+            pr(`OOS ${name} /GiB`, `oos__${name}`, arr, {
+              availKey:`oos.${name}`,
+              deletable: name !== "Standard",
+              onDelete:  name !== "Standard" ? ()=>deleteService('oos',name) : undefined
+            })
+          )}
+          <AddServiceRow regions={regions} onAdd={(n,ps)=>addService('oos',n,ps,null)} placeholder="Nom du tier OOS (ex: Glacier)"/>
           <div className="cat-section">Réseau</div>
-          {pr("VPN IPsec /h","vpn",data.vpn||[])}
-          {pr("NAT Gateway /h","nat",data.nat||[])}
-          {pr("LBU /h","lbu",data.lbu||[])}
-          {pr("EIP /h","eip",data.eip||[])}
-          {pr("DirectLink setup","dl_setup",data.dl_setup||[])}
-          {pr("DirectLink 1 Gbps /mois","dl_1g",data.dl_1gbps||[])}
-          {pr("DirectLink 10 Gbps /mois","dl_10g",data.dl_10gbps||[])}
-          {pr("HDL setup","hdl_setup",data.hdl_setup||[])}
-          {pr("HDL 1 Gbps /mois","hdl_1g",data.hdl_1gbps||[])}
-          {pr("HDL 10 Gbps /mois","hdl_10g",data.hdl_10gbps||[])}
+          {pr("VPN IPsec /h","vpn",data.vpn||[], {availKey:"vpn"})}
+          {pr("NAT Gateway /h","nat",data.nat||[], {availKey:"nat"})}
+          {pr("LBU /h","lbu",data.lbu||[], {availKey:"lbu"})}
+          {pr("EIP /h","eip",data.eip||[], {availKey:"eip"})}
+          {pr("DirectLink setup","dl_setup",data.dl_setup||[], {availKey:"dl_setup"})}
+          {pr("DirectLink 1 Gbps /mois","dl_1g",data.dl_1gbps||[], {availKey:"dl_1gbps"})}
+          {pr("DirectLink 10 Gbps /mois","dl_10g",data.dl_10gbps||[], {availKey:"dl_10gbps"})}
+          {pr("HDL setup","hdl_setup",data.hdl_setup||[], {availKey:"hdl_setup"})}
+          {pr("HDL 1 Gbps /mois","hdl_1g",data.hdl_1gbps||[], {availKey:"hdl_1gbps"})}
+          {pr("HDL 10 Gbps /mois","hdl_10g",data.hdl_10gbps||[], {availKey:"hdl_10gbps"})}
           <div className="cat-section">Licences (EUR/h par unité)</div>
-          {Object.entries(data.lic||{}).map(([name,l]) => pr(name, `lic__${name}`, l.price||[]))}
+          {Object.entries(data.lic||{}).map(([name,l]) =>
+            pr(name, `lic__${name}`, l.price||[], {availKey:`lic.${name}`, deletable:true, onDelete:()=>deleteService('lic',name)})
+          )}
+          <AddServiceRow regions={regions} onAdd={(n,ps)=>addService('lic',n,ps,null)} placeholder="Nom de la licence"/>
         </div>
       </div>
     </div>
@@ -317,8 +551,14 @@ function FormulasTab() {
   };
 
   const addRow = () => {
-    setData(d => ({...d, engagements:[...(d.engagements||[]), {id:`custom-${Date.now()}`,label:"Nouvel engagement",discount:0,active:true}]}));
+    setData(d => ({...d, engagements:[...(d.engagements||[]), {id:`custom-${Date.now()}`,label:"Nouvel engagement",discount:0,active:true,applies_to:["cpu","ram","gpu"]}]}));
     setDirty(true);
+  };
+
+  const toggleApplies = (idx, key) => {
+    const cur = (data.engagements[idx].applies_to) || ["cpu","ram","gpu"];
+    const next = cur.includes(key) ? cur.filter(k=>k!==key) : [...cur, key];
+    upd(idx, "applies_to", next);
   };
 
   const delRow = idx => {
@@ -363,13 +603,15 @@ function FormulasTab() {
       </div>
 
       <div className="card" style={{overflow:"hidden"}}>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr 120px 80px 60px",background:"var(--os-blue-dark)",padding:"8px 12px",gap:8}}>
-          {["ID","Libellé","Remise %","Actif",""].map((h,i)=>(
+        <div style={{display:"grid",gridTemplateColumns:"1fr 2fr 120px 160px 80px 60px",background:"var(--os-blue-dark)",padding:"8px 12px",gap:8}}>
+          {["ID","Libellé","Remise %","S'applique à","Actif",""].map((h,i)=>(
             <div key={i} style={{fontSize:10,fontWeight:600,color:"rgba(255,255,255,.6)",textTransform:"uppercase",letterSpacing:".06em"}}>{h}</div>
           ))}
         </div>
-        {engs.map((e, idx) => (
-          <div key={idx} style={{display:"grid",gridTemplateColumns:"1fr 2fr 120px 80px 60px",padding:"6px 12px",gap:8,borderBottom:"1px solid var(--border)",alignItems:"center"}}
+        {engs.map((e, idx) => {
+          const at = e.applies_to || ["cpu","ram","gpu"];
+          return (
+          <div key={idx} style={{display:"grid",gridTemplateColumns:"1fr 2fr 120px 160px 80px 60px",padding:"6px 12px",gap:8,borderBottom:"1px solid var(--border)",alignItems:"center"}}
             onMouseEnter={ev=>ev.currentTarget.style.background="var(--panel-2)"}
             onMouseLeave={ev=>ev.currentTarget.style.background=""}>
             <input className="inp mono" style={{fontSize:12,padding:"4px 8px"}} value={e.id}
@@ -383,13 +625,26 @@ function FormulasTab() {
                 {Math.round((e.discount??e.d??0)*100)}%
               </span>
             </div>
+            <div style={{display:"flex",gap:4}}>
+              {["cpu","ram","gpu"].map(k => (
+                <button key={k} onClick={()=>toggleApplies(idx,k)}
+                  style={{padding:"3px 7px",borderRadius:5,border:"1px solid",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",textTransform:"uppercase",
+                    background: at.includes(k) ? "var(--os-blue)" : "transparent",
+                    color:      at.includes(k) ? "#fff"           : "var(--text-muted)",
+                    borderColor:at.includes(k) ? "var(--os-blue)" : "var(--border)",
+                    transition:"all .15s"}}>
+                  {k}
+                </button>
+              ))}
+            </div>
             <select className="sel" style={{fontSize:12,padding:"4px 6px"}} value={e.active?"1":"0"}
               onChange={ev=>upd(idx,"active",ev.target.value==="1")}>
               <option value="1">Oui</option><option value="0">Non</option>
             </select>
             <button className="btn xs ghost danger" onClick={()=>delRow(idx)}>✕</button>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -424,7 +679,6 @@ function RegionsTab() {
     setDirty(true);
   };
 
-  /* drag-and-drop reorder */
   const onDragStart = idx => setDragIdx(idx);
   const onDragOver  = (e, idx) => {
     e.preventDefault();
@@ -555,7 +809,6 @@ function HistoryTab() {
   const kindBadge = k => ({catalog:"#dbeafe",formulas:"#ede9fe",regions:"#d1fae5"}[k]||"#e5e7eb");
   const kindColor = k => ({catalog:"#1e4d8c",formulas:"#5b21b6",regions:"#065f46"}[k]||"#374151");
 
-  /* Diff viewer simplifié */
   const DiffView = ({snap, snap_data, current}) => {
     const flattenObj = (obj, prefix="") => {
       const result = {};
@@ -651,23 +904,371 @@ function HistoryTab() {
   );
 }
 
+/* ── UsersTab ── */
+function UsersTab() {
+  const [users,   setUsers]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [errMsg,  setErrMsg]  = useState("");
+  const [showAdd, setShowAdd] = useState(false);
+  const [form,    setForm]    = useState({username:"", password:"", role:"prospect", company:""});
+  const [formErr, setFormErr] = useState("");
+  const [resetId, setResetId] = useState(null);
+  const [newPwd,  setNewPwd]  = useState("");
+
+  const load = () => {
+    setLoading(true);
+    apiFetch('/users').then(d => { setUsers(d); setLoading(false); }).catch(e => { setErrMsg(e.message); setLoading(false); });
+  };
+
+  useEffect(load, []);
+
+  const createUser = async e => {
+    e.preventDefault(); setFormErr("");
+    try {
+      const u = await apiFetch('/users', {method:'POST', body:JSON.stringify(form)});
+      setUsers(prev => [...prev, u]);
+      setForm({username:"", password:"", role:"prospect", company:""});
+      setShowAdd(false);
+    } catch(e) { setFormErr(e.message); }
+  };
+
+  const changeRole = async (id, role) => {
+    try {
+      await apiFetch(`/users/${id}`, {method:'PATCH', body:JSON.stringify({role})});
+      setUsers(prev => prev.map(u => u.id===id ? {...u, role} : u));
+    } catch(e) { setErrMsg(e.message); }
+  };
+
+  const resetPassword = async id => {
+    if (!newPwd || newPwd.length < 6) { setErrMsg("Mot de passe trop court (min 6 caractères)"); return; }
+    try {
+      await apiFetch(`/users/${id}`, {method:'PATCH', body:JSON.stringify({password:newPwd})});
+      setResetId(null); setNewPwd(""); alert("Mot de passe mis à jour.");
+    } catch(e) { setErrMsg(e.message); }
+  };
+
+  const deleteUser = async id => {
+    if (!confirm("Supprimer cet utilisateur et toutes ses simulations ?")) return;
+    try {
+      await apiFetch(`/users/${id}`, {method:'DELETE'});
+      setUsers(prev => prev.filter(u => u.id !== id));
+    } catch(e) { setErrMsg(e.message); }
+  };
+
+  return (
+    <div className="fade-in">
+      <div className="card" style={{marginBottom:14,padding:"12px 16px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)"}}>Gestion des utilisateurs</div>
+            <div style={{fontSize:11,color:"var(--text-muted)",marginTop:2}}>{users.length} utilisateur{users.length!==1?"s":""}</div>
+          </div>
+          <button className="btn orange" onClick={()=>setShowAdd(!showAdd)}>+ Nouvel utilisateur</button>
+          <button className="btn xs ghost" onClick={load} style={{marginLeft:4}}>↺</button>
+        </div>
+        {errMsg && <div className="err-banner" style={{marginTop:10}}>{errMsg}</div>}
+
+        {showAdd && (
+          <form onSubmit={createUser} style={{marginTop:14,padding:"12px 16px",background:"var(--panel-2)",borderRadius:8,border:"1px solid var(--border)"}}>
+            <div style={{fontWeight:600,fontSize:13,color:"var(--os-blue-dark)",marginBottom:10}}>Créer un utilisateur</div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 130px",gap:10,alignItems:"end"}}>
+              <div>
+                <div className="lbl">Identifiant</div>
+                <input className="inp" value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} placeholder="prenom.nom" required/>
+              </div>
+              <div>
+                <div className="lbl">Mot de passe initial</div>
+                <input type="password" className="inp" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} placeholder="min 6 caractères" required/>
+              </div>
+              <div>
+                <div className="lbl">Société <span style={{fontWeight:400,color:"var(--text-muted)"}}>(optionnel)</span></div>
+                <input className="inp" value={form.company} onChange={e=>setForm(f=>({...f,company:e.target.value}))} placeholder="Nom de l'entreprise"/>
+              </div>
+              <div>
+                <div className="lbl">Rôle</div>
+                <select className="sel" value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+                  <option value="prospect">Prospect</option>
+                  <option value="outscale">Outscale</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            </div>
+            {formErr && <div className="err-banner" style={{marginTop:8}}>{formErr}</div>}
+            <div style={{display:"flex",gap:8,marginTop:12}}>
+              <button type="submit" className="btn orange">Créer</button>
+              <button type="button" className="btn ghost" onClick={()=>setShowAdd(false)}>Annuler</button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {loading ? <div style={{padding:20,color:"var(--text-muted)"}}>Chargement...</div> : (
+        <div className="card" style={{overflow:"hidden"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 120px 140px 120px 120px 180px",background:"var(--os-blue-dark)",padding:"8px 12px",gap:8}}>
+            {["Identifiant","Société","Rôle","Créé le","Créé par","ID","Actions"].map((h,i)=>(
+              <div key={i} style={{fontSize:10,fontWeight:600,color:"rgba(255,255,255,.6)",textTransform:"uppercase",letterSpacing:".06em"}}>{h}</div>
+            ))}
+          </div>
+          {users.length===0 && (
+            <div style={{padding:"24px 12px",textAlign:"center",color:"var(--text-muted)",fontSize:13}}>
+              Aucun utilisateur. Créez le premier compte ci-dessus.
+            </div>
+          )}
+          {users.map(u => (
+            <div key={u.id}
+              style={{display:"grid",gridTemplateColumns:"1fr 1fr 120px 140px 120px 120px 180px",padding:"8px 12px",gap:8,
+                borderBottom:"1px solid var(--border)",alignItems:"center"}}
+              onMouseEnter={e=>e.currentTarget.style.background="var(--panel-2)"}
+              onMouseLeave={e=>e.currentTarget.style.background=""}>
+              <span style={{fontWeight:600,fontSize:13}}>{u.username}</span>
+              <span style={{fontSize:12,color:"var(--text-muted)"}}>{u.company||<span style={{opacity:.4}}>—</span>}</span>
+              <div>
+                <select className="sel" style={{fontSize:11,padding:"3px 6px"}} value={u.role}
+                  onChange={e=>changeRole(u.id, e.target.value)}>
+                  <option value="prospect">Prospect</option>
+                  <option value="outscale">Outscale</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <span className="mono" style={{fontSize:11,color:"var(--text-muted)"}}>{u.created_at?.slice(0,10)||"—"}</span>
+              <span style={{fontSize:11,color:"var(--text-muted)"}}>{u.created_by||"—"}</span>
+              <span className="mono" style={{fontSize:10,color:"var(--text-muted)"}}>{u.id}</span>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                {resetId===u.id ? (
+                  <>
+                    <input className="inp mono" type="password" style={{fontSize:11,padding:"3px 6px",width:90}}
+                      value={newPwd} onChange={e=>setNewPwd(e.target.value)} placeholder="nouveau mdp" autoFocus/>
+                    <button className="btn xs" onClick={()=>resetPassword(u.id)}>OK</button>
+                    <button className="btn xs ghost" onClick={()=>{setResetId(null);setNewPwd("");}}>✕</button>
+                  </>
+                ) : (
+                  <>
+                    <button className="btn xs ghost" onClick={()=>{setResetId(u.id);setNewPwd("");}}>MDP</button>
+                    <button className="btn xs ghost danger" onClick={()=>deleteUser(u.id)}>Supprimer</button>
+                  </>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── LogsTab ── */
+function LogsTab() {
+  const [lines,        setLines]        = useState([]);
+  const [total,        setTotal]        = useState(0);
+  const [loading,      setLoading]      = useState(true);
+  const [errMsg,       setErrMsg]       = useState("");
+  const [search,       setSearch]       = useState("");
+  const [actionFilter, setActionFilter] = useState("");
+  const [limit,        setLimit]        = useState(500);
+  const [autoRefresh,  setAutoRefresh]  = useState(false);
+  const [expanded,     setExpanded]     = useState(null);
+  const timerRef = useRef(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiFetch(`/logs?lines=${limit}`);
+      setLines(data.lines || []);
+      setTotal(data.total || 0);
+      setErrMsg("");
+    } catch(e) { setErrMsg(e.message); }
+    finally { setLoading(false); }
+  }, [limit]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    clearInterval(timerRef.current);
+    if (autoRefresh) timerRef.current = setInterval(load, 10000);
+    return () => clearInterval(timerRef.current);
+  }, [autoRefresh, load]);
+
+  const parseLine = raw => {
+    const p = raw.split(' | ');
+    return { ts: p[0]?.trim()||'', ip: p[1]?.trim()||'', user: p[2]?.trim()||'',
+             action: p[3]?.trim()||'', detail: p[4]?.trim()||'' };
+  };
+
+  const ACTION_COLORS = {
+    LOGIN_OK:         {bg:'#dcfce7',color:'#166534'},
+    LOGIN_FAIL:       {bg:'#fee2e2',color:'#991b1b'},
+    REGISTER:         {bg:'#dbeafe',color:'#1e40af'},
+    USER_CREATE:      {bg:'#e0f2fe',color:'#075985'},
+    USER_UPDATE:      {bg:'#fef9c3',color:'#713f12'},
+    USER_DELETE:      {bg:'#fee2e2',color:'#991b1b'},
+    SIM_CREATE:       {bg:'#f0fdf4',color:'#166534'},
+    SIM_UPDATE:       {bg:'#f0fdf4',color:'#166534'},
+    SIM_SHARE:        {bg:'#e0f2fe',color:'#075985'},
+    SIM_DELETE:       {bg:'#fef3c7',color:'#92400e'},
+    CATALOG_UPDATE:   {bg:'#ede9fe',color:'#5b21b6'},
+    FORMULAS_UPDATE:  {bg:'#ede9fe',color:'#5b21b6'},
+    REGIONS_UPDATE:   {bg:'#ede9fe',color:'#5b21b6'},
+    SNAPSHOT_RESTORE: {bg:'#fef9c3',color:'#713f12'},
+    SNAPSHOT_DELETE:  {bg:'#fee2e2',color:'#991b1b'},
+    LOGS_VIEW:        {bg:'#f1f5f9',color:'#64748b'},
+    LOGS_DOWNLOAD:    {bg:'#f1f5f9',color:'#64748b'},
+  };
+  const actionColor = a => ACTION_COLORS[a] || {bg:'#f1f5f9',color:'#374151'};
+
+  const allActions = useMemo(() => {
+    const s = new Set(lines.map(l => parseLine(l).action).filter(Boolean));
+    return [...s].sort();
+  }, [lines]);
+
+  const filtered = useMemo(() => {
+    const sq = search.toLowerCase();
+    return [...lines].reverse().filter(l => {
+      const p = parseLine(l);
+      if (actionFilter && p.action !== actionFilter) return false;
+      if (sq && !l.toLowerCase().includes(sq)) return false;
+      return true;
+    });
+  }, [lines, search, actionFilter]);
+
+  const downloadRaw = async () => {
+    try {
+      const r = await fetch('/api/logs/download', {headers:{'Authorization':`Bearer ${getToken()}`}});
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download='actions.log'; a.click();
+      URL.revokeObjectURL(url);
+    } catch(e) { setErrMsg(e.message); }
+  };
+
+  const exportCsv = () => {
+    const header = "timestamp,ip,user,action,detail\n";
+    const rows = filtered.map(l => {
+      const p = parseLine(l);
+      return [p.ts,p.ip,p.user,p.action,p.detail].map(v=>`"${(v||'').replace(/"/g,'""')}"`).join(',');
+    }).join('\n');
+    const blob = new Blob([header+rows], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='logs.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const cols = "160px 110px 190px 160px 1fr";
+
+  return (
+    <div className="fade-in">
+      <div className="card" style={{marginBottom:14,padding:"12px 16px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)"}}>Journal des actions</div>
+            <div style={{fontSize:11,color:"var(--text-muted)",marginTop:2}}>
+              {loading ? "Chargement…" : `${filtered.length} ligne${filtered.length!==1?"s":""} affichée${filtered.length!==1?"s":""} — ${total} au total dans le fichier`}
+            </div>
+          </div>
+          <input className="inp" style={{width:200}} placeholder="Rechercher…"
+            value={search} onChange={e=>{setSearch(e.target.value);setExpanded(null);}}/>
+          <select className="sel" value={actionFilter}
+            onChange={e=>{setActionFilter(e.target.value);setExpanded(null);}}>
+            <option value="">Toutes les actions</option>
+            {allActions.map(a=><option key={a} value={a}>{a}</option>)}
+          </select>
+          <select className="sel" value={limit} onChange={e=>setLimit(+e.target.value)}>
+            <option value={200}>200 lignes</option>
+            <option value={500}>500 lignes</option>
+            <option value={1000}>1 000 lignes</option>
+            <option value={5000}>5 000 lignes</option>
+          </select>
+          <button className={"btn xs"+(autoRefresh?" blue":"")} title="Rafraîchissement auto (10 s)"
+            onClick={()=>setAutoRefresh(v=>!v)}>{autoRefresh?"⏸ Auto":"▶ Auto"}</button>
+          <button className="btn xs ghost" onClick={load} title="Actualiser">↺</button>
+          <button className="btn xs ghost" onClick={exportCsv} title="Exporter la vue filtrée en CSV">CSV</button>
+          <button className="btn xs ghost" onClick={downloadRaw} title="Télécharger le fichier brut complet">⬇ .log</button>
+        </div>
+        {errMsg && <div className="err-banner" style={{marginTop:10}}>{errMsg}</div>}
+      </div>
+
+      <div className="card" style={{overflow:"hidden"}}>
+        <div style={{display:"grid",gridTemplateColumns:cols,background:"var(--os-blue-dark)",padding:"8px 12px",gap:8}}>
+          {["Horodatage","IP","Utilisateur","Action","Détail"].map((h,i)=>(
+            <div key={i} style={{fontSize:10,fontWeight:600,color:"rgba(255,255,255,.6)",textTransform:"uppercase",letterSpacing:".06em"}}>{h}</div>
+          ))}
+        </div>
+        <div style={{overflowY:"auto",maxHeight:"calc(100vh - 290px)"}} className="scroll">
+          {loading && <div style={{padding:"20px 12px",color:"var(--text-muted)",fontSize:13}}>Chargement…</div>}
+          {!loading && filtered.length===0 && (
+            <div style={{padding:"24px 12px",textAlign:"center",color:"var(--text-muted)",fontSize:13}}>
+              Aucune entrée{search||actionFilter ? " pour ce filtre" : " dans le journal"}.
+            </div>
+          )}
+          {!loading && filtered.map((raw,i) => {
+            const p = parseLine(raw);
+            const c = actionColor(p.action);
+            const isExp = expanded===i;
+            return (
+              <div key={i} style={{borderBottom:"1px solid var(--border)",cursor:"pointer",
+                background:isExp?"var(--panel-2)":""}}
+                onMouseEnter={ev=>{if(!isExp)ev.currentTarget.style.background="var(--panel-2)"}}
+                onMouseLeave={ev=>{if(!isExp)ev.currentTarget.style.background=""}}
+                onClick={()=>setExpanded(isExp?null:i)}>
+                <div style={{display:"grid",gridTemplateColumns:cols,padding:"6px 12px",gap:8,alignItems:"center"}}>
+                  <span className="mono" style={{fontSize:10,color:"var(--text-muted)"}}>
+                    {p.ts.replace("T"," ").replace("Z","")}
+                  </span>
+                  <span className="mono" style={{fontSize:11,color:"var(--text-dim)"}}>{p.ip}</span>
+                  <span style={{fontSize:12,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.user}</span>
+                  <span>
+                    <span style={{padding:"2px 7px",borderRadius:4,fontSize:11,fontWeight:600,
+                      background:c.bg,color:c.color,whiteSpace:"nowrap"}}>{p.action}</span>
+                  </span>
+                  <span style={{fontSize:12,color:"var(--text-dim)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.detail}</span>
+                </div>
+                {isExp && (
+                  <div style={{padding:"6px 12px 10px",borderTop:"1px solid var(--border)",background:"var(--os-blue-pale)"}}>
+                    <code style={{fontSize:11,color:"var(--text-dim)",fontFamily:"'DM Mono',monospace",wordBreak:"break-all",lineHeight:1.6}}>{raw}</code>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Dashboard ── */
 function Dashboard() {
   const [info, setInfo] = useState(null);
   useEffect(() => {
-    Promise.all([apiFetch('/catalog'), apiFetch('/formulas'), apiFetch('/regions'), apiFetch('/history')])
-      .then(([cat,form,reg,hist]) => setInfo({cat,form,reg,hist}))
+    Promise.all([
+      apiFetch('/catalog'), apiFetch('/formulas'), apiFetch('/regions'),
+      apiFetch('/history'), apiFetch('/users'), apiFetch('/logs?lines=8')
+    ])
+      .then(([cat,form,reg,hist,usr,logs]) => setInfo({cat,form,reg,hist,usr,logs}))
       .catch(() => {});
   }, []);
   if (!info) return <div style={{padding:20,color:"var(--text-muted)"}}>Chargement...</div>;
+
+  const ACTION_COLORS_MINI = {
+    LOGIN_OK:'#166534',LOGIN_FAIL:'#991b1b',REGISTER:'#1e40af',
+    USER_CREATE:'#075985',USER_UPDATE:'#713f12',USER_DELETE:'#991b1b',
+    CATALOG_UPDATE:'#5b21b6',FORMULAS_UPDATE:'#5b21b6',REGIONS_UPDATE:'#5b21b6',
+  };
+  const parseLogLine = raw => {
+    const p = raw.split(' | ');
+    return {ts:p[0]?.trim()||'',ip:p[1]?.trim()||'',user:p[2]?.trim()||'',action:p[3]?.trim()||'',detail:p[4]?.trim()||''};
+  };
+  const recentLogs = (info.logs?.lines||[]).slice().reverse().filter(l=>!parseLogLine(l).action.startsWith("LOGS_"));
+
   const cards = [
     {label:"Catalogue",  meta:info.cat._meta,  count:`${Object.keys(info.cat.gpu||{}).length} GPU, ${Object.keys(info.cat.vcore||{}).length} génér.`},
     {label:"Formules RI",meta:info.form._meta, count:`${(info.form.engagements||[]).filter(e=>e.active!==false).length} engagements actifs`},
     {label:"Régions",    meta:info.reg._meta,  count:`${((info.reg.regions||info.reg).filter(r=>r.active!==false)).length} régions actives`},
+    {label:"Utilisateurs",meta:null, count:`${info.usr.length} compte${info.usr.length!==1?"s":""} — ${info.usr.filter(u=>u.role==="prospect").length} prospect${info.usr.filter(u=>u.role==="prospect").length!==1?"s":""}` },
   ];
   return (
     <div className="fade-in">
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:14}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:14}}>
         {cards.map(c=>(
           <div key={c.label} className="card" style={{padding:"16px 20px"}}>
             <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)",marginBottom:4}}>{c.label}</div>
@@ -679,16 +1280,33 @@ function Dashboard() {
           </div>
         ))}
       </div>
-      <div className="card" style={{padding:"16px 20px"}}>
-        <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)",marginBottom:8}}>Derniers snapshots</div>
-        {info.hist.slice(0,5).map(s=>(
-          <div key={s.id} style={{display:"flex",gap:10,alignItems:"center",padding:"5px 0",borderBottom:"1px solid var(--border)"}}>
-            <span className="mono" style={{fontSize:11,color:"var(--text-muted)",flexShrink:0}}>{s.at?.slice(0,16).replace("T"," ")}</span>
-            <span style={{fontSize:11,fontWeight:600,color:"var(--os-blue)",flexShrink:0,minWidth:60}}>{s.kind}</span>
-            <span style={{fontSize:12,color:"var(--text-dim)"}}>{s.comment}</span>
-          </div>
-        ))}
-        {info.hist.length===0 && <div style={{fontSize:12,color:"var(--text-muted)"}}>Aucun snapshot pour l'instant.</div>}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
+        <div className="card" style={{padding:"16px 20px"}}>
+          <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)",marginBottom:8}}>Derniers snapshots</div>
+          {info.hist.slice(0,5).map(s=>(
+            <div key={s.id} style={{display:"flex",gap:10,alignItems:"center",padding:"5px 0",borderBottom:"1px solid var(--border)"}}>
+              <span className="mono" style={{fontSize:11,color:"var(--text-muted)",flexShrink:0}}>{s.at?.slice(0,16).replace("T"," ")}</span>
+              <span style={{fontSize:11,fontWeight:600,color:"var(--os-blue)",flexShrink:0,minWidth:60}}>{s.kind}</span>
+              <span style={{fontSize:12,color:"var(--text-dim)"}}>{s.comment}</span>
+            </div>
+          ))}
+          {info.hist.length===0 && <div style={{fontSize:12,color:"var(--text-muted)"}}>Aucun snapshot pour l'instant.</div>}
+        </div>
+        <div className="card" style={{padding:"16px 20px"}}>
+          <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)",marginBottom:8}}>Dernières actions</div>
+          {recentLogs.slice(0,7).map((raw,i)=>{
+            const p = parseLogLine(raw);
+            const col = ACTION_COLORS_MINI[p.action]||"#374151";
+            return (
+              <div key={i} style={{display:"flex",gap:8,alignItems:"center",padding:"5px 0",borderBottom:"1px solid var(--border)"}}>
+                <span className="mono" style={{fontSize:10,color:"var(--text-muted)",flexShrink:0,minWidth:130}}>{p.ts.replace("T"," ").replace("Z","")}</span>
+                <span style={{fontSize:10,fontWeight:700,color:col,flexShrink:0,minWidth:110}}>{p.action}</span>
+                <span style={{fontSize:11,color:"var(--text-dim)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.user}</span>
+              </div>
+            );
+          })}
+          {recentLogs.length===0 && <div style={{fontSize:12,color:"var(--text-muted)"}}>Aucune action enregistrée.</div>}
+        </div>
       </div>
     </div>
   );
@@ -705,42 +1323,56 @@ function AdminApp() {
     {k:"catalog",   l:"Catalogue"},
     {k:"formulas",  l:"Formules RI"},
     {k:"regions",   l:"Régions"},
+    {k:"users",     l:"Utilisateurs"},
     {k:"history",   l:"Historique"},
+    {k:"logs",      l:"Logs"},
   ];
 
   return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
       <header className="adm-hdr">
         <div className="adm-hdr-inner">
-          <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-            <img src="/assets/logo-outscale-blanc.svg" alt="OUTSCALE" height="22" style={{display:"block"}}/>
-            <span style={{fontSize:11,fontWeight:600,color:"rgba(255,255,255,.5)",letterSpacing:".1em",textTransform:"uppercase"}}>Admin</span>
+          <div className="logo-wrap">
+            <img src="/assets/logo-outscale-blanc.svg" alt="OUTSCALE" height="28" style={{display:"block"}}/>
+            <div style={{marginTop:1}}><div className="logo-text-sub">Administration</div></div>
           </div>
-          <div className="vdiv" style={{background:"rgba(255,255,255,.15)",width:1,height:24,flexShrink:0}}/>
-          <nav className="tab-bar">
-            {tabs.map(t=>(
-              <button key={t.k} className={"atab"+(tab===t.k?" on":"")} onClick={()=>setTab(t.k)}>{t.l}</button>
-            ))}
-          </nav>
-          <div style={{flex:1}}/>
-          <a href="/" className="io-btn" style={{textDecoration:"none"}}>← Estimateur</a>
-          <button className="io-btn" onClick={logout}>Déconnexion</button>
         </div>
       </header>
-      <main className="adm-main" style={{flex:1}}>
-        {tab==="dashboard" && <Dashboard/>}
-        {tab==="catalog"   && <CatalogTab/>}
-        {tab==="formulas"  && <FormulasTab/>}
-        {tab==="regions"   && <RegionsTab/>}
-        {tab==="history"   && <HistoryTab/>}
-      </main>
+      <div style={{flex:1,display:"flex",alignItems:"stretch"}}>
+        <aside className="sidebar">
+          <div className="sb-section-title">Navigation</div>
+          <div className="sb-group">
+            {tabs.map(t => (
+              <button key={t.k} className={"sb-btn"+(tab===t.k?" on":"")} onClick={()=>setTab(t.k)}>{t.l}</button>
+            ))}
+          </div>
+          <div style={{marginTop:"auto",paddingTop:8}}>
+            <div className="sb-sep"/>
+            <a href="/" className="sb-btn" style={{textDecoration:"none",textAlign:"center",display:"block",marginBottom:4}}>← Estimateur</a>
+            <button className="sb-btn" onClick={logout}>Déconnexion</button>
+          </div>
+        </aside>
+        <div style={{flex:1,minWidth:0}}>
+          <main className="adm-main" style={{flex:1}}>
+            {tab==="dashboard" && <Dashboard/>}
+            {tab==="catalog"   && <CatalogTab/>}
+            {tab==="formulas"  && <FormulasTab/>}
+            {tab==="regions"   && <RegionsTab/>}
+            {tab==="users"     && <UsersTab/>}
+            {tab==="history"   && <HistoryTab/>}
+            {tab==="logs"      && <LogsTab/>}
+          </main>
+        </div>
+      </div>
     </div>
   );
 }
 
 /* ── Root ── */
 function Root() {
-  const [loggedIn, setLoggedIn] = useState(!!getToken());
+  const [loggedIn, setLoggedIn] = useState(() => {
+    return parseTokenRole(getToken()) === 'admin';
+  });
   if (!loggedIn) return <LoginPage onLogin={()=>setLoggedIn(true)}/>;
   return <AdminApp/>;
 }

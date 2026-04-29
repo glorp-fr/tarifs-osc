@@ -11,17 +11,22 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@600;700&family=Open+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/style.css">
-<script src="/assets/js/calc.js"></script>
-<script src="/assets/js/api.js"></script>
+<script src="/assets/js/calc.js?v=4"></script>
+<script src="/assets/js/api.js?v=4"></script>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel" data-presets="react">
 const {useState, useEffect, useMemo, useRef, useCallback, createContext, useContext} = React;
 const {GROUPS, BLABELS, BCLS, FLAG, HPM, UID, fE, fp, CPUGENS, PERF_OPTS, NET_OPTS, DEMO, calcLine} = OSCalc;
+const {getToken, setToken, clearToken, parseToken, apiFetch} = OSApi;
 
-/* ── Contexte global ── */
-const AppCtx = createContext({ regions: [], engagements: [], catalog: null, activeRegions: [] });
+/* ── Contextes ── */
+const AppCtx  = createContext({ regions: [], engagements: [], catalog: null, activeRegions: [] });
+const UserCtx = createContext(null);
+
+const ROLE_LABELS = { admin:"Admin", outscale:"Outscale", prospect:"Prospect" };
+const ROLE_CLS    = { admin:"b-oks", outscale:"b-comp", prospect:"b-bsu" };
 
 /* ── Composants de base ── */
 function Bdg({type}) {
@@ -57,12 +62,29 @@ function LineEditor({line, onChange, onDelete, onDuplicate, C}) {
   const regionId = line.region_id || activeRegions[0] || "eu-west-2";
   const r = useMemo(() => calcLine(line, C, regionId, regions, engagements), [line, C, regionId, regions, engagements]);
 
-  const engOpts    = engagements.map(e => ({v:e.id, l:e.label}));
-  const STOR_OPTS  = Object.keys(C.storage||{});
-  const GPU_OPTS   = Object.keys(C.gpu||{});
-  const OKS_OPTS   = Object.keys(C.oks||{});
-  const LIC_OPTS   = Object.keys(C.lic||{});
+  const makeEngOpts = (keys) => {
+    const filtered = engagements.filter(e => (e.applies_to||["cpu","ram","gpu"]).some(k=>keys.includes(k)));
+    const cur = line.engagement && !filtered.find(e=>e.id===line.engagement)
+      ? engagements.find(e=>e.id===line.engagement) : null;
+    const opts = filtered.map(e=>({v:e.id,l:e.label}));
+    return cur ? [{v:cur.id,l:`⚠ ${cur.label}`},...opts] : opts;
+  };
+  const cpuEngOpts = makeEngOpts(["cpu","ram"]);
+  const gpuEngOpts = makeEngOpts(["gpu"]);
+  const ri         = Math.max(0, regions.findIndex(r => r.id === regionId));
+  const isAvail    = (key) => { const a=C._availability?.[key]; return !a||a[ri]!==false; };
+  const STOR_OPTS  = Object.keys(C.storage||{}).filter(n => isAvail(`storage.${n}`));
+  const GPU_OPTS   = Object.keys(C.gpu||{}).filter(n => isAvail(`gpu.${n}`));
+  const OKS_OPTS   = Object.keys(C.oks||{}).filter(n => isAvail(`oks.${n}`));
+  const LIC_OPTS   = Object.keys(C.lic||{}).filter(n => isAvail(`lic.${n}`));
   const gpuCap     = C.gpu_ri_cap ?? 0.30;
+  const NET_OPTS   = OSCalc.NET_OPTS.filter(opt => {
+    if (!opt.includes("Hosted DirectLink")) return true;
+    if (opt.includes("mise en service")) return isAvail("hdl_setup");
+    if (opt.includes("1 Gb")) return isAvail("hdl_1gbps");
+    return isAvail("hdl_10gbps");
+  });
+  const CPU_GENS   = OSCalc.CPUGENS.filter(gen => isAvail(`vcore.${gen}`));
 
   const regionOpts = useMemo(() => {
     const opts = activeRegions.map(id => {
@@ -84,10 +106,10 @@ function LineEditor({line, onChange, onDelete, onDuplicate, C}) {
         <Fld label="Qte VMs"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
         <Fld label="vCores/VM"><Num value={line.vcore} onChange={v=>u("vcore",v)}/></Fld>
         <Fld label="RAM GiB/VM"><Num value={line.ram} onChange={v=>u("ram",v)}/></Fld>
-        <Fld label="Generation"><Sel value={line.cpu_gen} onChange={v=>u("cpu_gen",v)} options={CPUGENS}/></Fld>
+        <Fld label="Generation"><Sel value={line.cpu_gen} onChange={v=>u("cpu_gen",v)} options={CPU_GENS}/></Fld>
         <Fld label="Performance"><Sel value={line.perf} onChange={v=>u("perf",v)} options={PERF_OPTS}/></Fld>
         <Fld label="Usage" hint="0-1 (1=100%)"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
-        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={engOpts}/></Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={cpuEngOpts}/></Fld>
         <Fld label="VM dediee"><Sel value={line.dedicated?"y":"n"} onChange={v=>u("dedicated",v==="y")} options={[{v:"n",l:"Non"},{v:"y",l:"Oui (+10%)"}]}/></Fld>
         <Fld label="Stockage BSU" w2><Sel value={line.storage_type||""} onChange={v=>u("storage_type",v)} placeholder="Aucun" options={STOR_OPTS}/></Fld>
         {line.storage_type && <>
@@ -98,20 +120,19 @@ function LineEditor({line, onChange, onDelete, onDuplicate, C}) {
       case "dedicated-access": return (<>
         <Fld label="Qte acces"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
         <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
-        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={engOpts}/></Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={cpuEngOpts}/></Fld>
       </>);
       case "gpu": return (<>
         <Fld label="Nb GPUs"><Num value={line.gpu_qty} onChange={v=>u("gpu_qty",v)} min={1}/></Fld>
         <Fld label="Type GPU"><Sel value={line.gpu_type} onChange={v=>u("gpu_type",v)} options={GPU_OPTS}/></Fld>
         <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
-        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={engOpts}/></Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={gpuEngOpts}/></Fld>
         <div className="col-span-2"><div className="warn-banner">Remise RI plafonnee a {Math.round(gpuCap*100)}% sur les GPU.</div></div>
       </>);
       case "oks": return (<>
         <Fld label="Nb plans"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
         <Fld label="Type" w2><Sel value={line.cp} onChange={v=>u("cp",v)} options={OKS_OPTS}/></Fld>
         <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
-        <Fld label="Engagement"><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={engOpts}/></Fld>
       </>);
       case "bsu": return (<>
         <Fld label="Nb volumes"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
@@ -119,9 +140,13 @@ function LineEditor({line, onChange, onDelete, onDuplicate, C}) {
         <Fld label="GiB/vol"><Num value={line.storage_gb} onChange={v=>u("storage_gb",v)}/></Fld>
         <Fld label="IOPS (io1)"><Num value={line.iops} onChange={v=>u("iops",v)}/></Fld>
       </>);
-      case "oos": return (<>
-        <Fld label="GiB"><Num value={line.storage_gb} onChange={v=>u("storage_gb",v)}/></Fld>
-      </>);
+      case "oos": {
+        const OOS_TYPES = Object.keys(C.oos||{}).filter(n => isAvail(`oos.${n}`));
+        return (<>
+          {OOS_TYPES.length > 1 && <Fld label="Type OOS" w2><Sel value={line.oos_type||OOS_TYPES[0]||"Standard"} onChange={v=>u("oos_type",v)} options={OOS_TYPES}/></Fld>}
+          <Fld label="GiB"><Num value={line.storage_gb} onChange={v=>u("storage_gb",v)}/></Fld>
+        </>);
+      }
       case "net": return (<>
         <Fld label="Service reseau" w2><Sel value={line.net_type} onChange={v=>u("net_type",v)} options={NET_OPTS}/></Fld>
         <Fld label="Quantite"><Num value={line.net_qty} onChange={v=>u("net_qty",v)} min={0}/></Fld>
@@ -501,10 +526,373 @@ function HelpPage() {
   );
 }
 
+/* ── LoginModal ── */
+function LoginPage({onLogin, onClose}) {
+  const [mode,    setMode]    = useState("login"); // "login" | "register"
+  const [user,    setUser]    = useState("");
+  const [pwd,     setPwd]     = useState("");
+  const [pwd2,    setPwd2]    = useState("");
+  const [company, setCompany] = useState("");
+  const [err,     setErr]     = useState("");
+  const [busy,    setBusy]    = useState(false);
+
+  const submit = async e => {
+    e.preventDefault();
+    setErr(""); setBusy(true);
+    try {
+      if (mode === "register") {
+        if (pwd !== pwd2) { setErr("Les mots de passe ne correspondent pas."); setBusy(false); return; }
+        const d = await fetch('/api/auth/register', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({username: user.trim(), password: pwd, company: company.trim()}),
+        }).then(async r => { const d=await r.json(); if(!r.ok) throw new Error(d.error); return d; });
+        setToken(d.token);
+        onLogin(d.user);
+      } else {
+        const d = await fetch('/api/auth/login', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({username: user.trim(), password: pwd}),
+        }).then(async r => { const d=await r.json(); if(!r.ok) throw new Error(d.error); return d; });
+        setToken(d.token);
+        onLogin(d.user);
+      }
+    } catch(e) {
+      setErr(e.message||"Erreur de connexion");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:400,display:"flex",
+      alignItems:"center",justifyContent:"center",padding:20}}
+      onClick={e=>{ if(onClose && e.target===e.currentTarget) onClose(); }}>
+      <div style={{background:"var(--panel)",border:"1px solid var(--border)",borderRadius:16,
+        padding:"36px 40px",width:380,boxShadow:"0 8px 32px rgba(0,83,134,.12)",position:"relative"}}>
+        {onClose && (
+          <button onClick={onClose} style={{position:"absolute",top:12,right:14,background:"none",border:"none",
+            cursor:"pointer",fontSize:18,color:"var(--text-muted)",lineHeight:1,padding:4}}>&#x2715;</button>
+        )}
+        <div style={{textAlign:"center",marginBottom:24}}>
+          <img src="/assets/logo-outscale-blanc.svg" alt="OUTSCALE"
+            style={{height:32,marginBottom:12,filter:"invert(1) sepia(1) saturate(2) hue-rotate(180deg)"}}/>
+          <div style={{fontWeight:700,fontSize:18,color:"var(--os-blue-dark)"}}>Cloud Estimateur</div>
+          <div style={{fontSize:12,color:"var(--text-muted)",marginTop:4}}>
+            {mode==="login" ? "Connexion à votre espace" : "Créer un compte prospect"}
+          </div>
+        </div>
+        <form onSubmit={submit}>
+          <div style={{marginBottom:12}}>
+            <div className="lbl">Identifiant</div>
+            <input className="inp" value={user} onChange={e=>setUser(e.target.value)}
+              placeholder="votre.identifiant" autoFocus style={{fontSize:14}}/>
+          </div>
+          <div style={{marginBottom:mode==="register"?12:16}}>
+            <div className="lbl">Mot de passe</div>
+            <input type="password" className="inp" value={pwd} onChange={e=>setPwd(e.target.value)}
+              placeholder="••••••••" style={{fontSize:14}}/>
+          </div>
+          {mode==="register" && (
+            <div style={{marginBottom:12}}>
+              <div className="lbl">Confirmer le mot de passe</div>
+              <input type="password" className="inp" value={pwd2} onChange={e=>setPwd2(e.target.value)}
+                placeholder="••••••••" style={{fontSize:14}}/>
+            </div>
+          )}
+          {mode==="register" && (
+            <div style={{marginBottom:16}}>
+              <div className="lbl">Société <span style={{fontWeight:400,color:"var(--text-muted)"}}>(optionnel)</span></div>
+              <input className="inp" value={company} onChange={e=>setCompany(e.target.value)}
+                placeholder="Nom de votre entreprise" style={{fontSize:14}}/>
+            </div>
+          )}
+          {err && <div className="err-banner" style={{marginBottom:12}}>{err}</div>}
+          <button type="submit" className="btn orange" disabled={busy||!user||!pwd}
+            style={{width:"100%",justifyContent:"center",padding:"9px 0",fontSize:14}}>
+            {busy ? "..." : mode==="login" ? "Se connecter" : "Créer le compte"}
+          </button>
+        </form>
+        <div style={{marginTop:16,textAlign:"center",fontSize:12,color:"var(--text-muted)"}}>
+          {mode==="login"
+            ? <span>Pas encore de compte ?{" "}
+                <button onClick={()=>{setMode("register");setErr("");}}
+                  style={{background:"none",border:"none",cursor:"pointer",color:"var(--os-blue)",fontWeight:600,fontSize:12,fontFamily:"inherit",padding:0}}>
+                  Créer un compte
+                </button>
+              </span>
+            : <span>Déjà un compte ?{" "}
+                <button onClick={()=>{setMode("login");setErr("");}}
+                  style={{background:"none",border:"none",cursor:"pointer",color:"var(--os-blue)",fontWeight:600,fontSize:12,fontFamily:"inherit",padding:0}}>
+                  Se connecter
+                </button>
+              </span>
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── ShareModal ── */
+function ShareModal({sim, onClose, onUpdated}) {
+  const user = useContext(UserCtx);
+  const [users,    setUsers]    = useState([]);
+  const [selected, setSelected] = useState(new Set(sim.shared_with || []));
+  const [loading,  setLoading]  = useState(true);
+  const [saving,   setSaving]   = useState(false);
+  const [err,      setErr]      = useState("");
+
+  useEffect(() => {
+    apiFetch('/users/directory')
+      .then(d => { setUsers((d||[]).filter(u => u.id !== user.id)); setLoading(false); })
+      .catch(e => { setErr(e.message); setLoading(false); });
+  }, []);
+
+  const toggle = id => setSelected(s => {
+    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n;
+  });
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const updated = await apiFetch(`/simulations/${sim.id}/share`, {
+        method: 'PUT', body: JSON.stringify({shared_with: [...selected]}),
+      });
+      onUpdated && onUpdated({...updated, _owned: true});
+      onClose();
+    } catch(e) { setErr(e.message); setSaving(false); }
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+      onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card" style={{width:"100%",maxWidth:440,display:"flex",flexDirection:"column",gap:0}}>
+        <div style={{padding:"14px 18px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)"}}>Partager</div>
+          <div style={{fontSize:12,color:"var(--text-muted)",flex:1,marginLeft:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sim.name}</div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"var(--text-muted)",padding:4}}>&#x2715;</button>
+        </div>
+        {loading ? (
+          <div style={{padding:24,textAlign:"center",color:"var(--text-muted)",fontSize:13}}>Chargement...</div>
+        ) : users.length === 0 ? (
+          <div style={{padding:24,textAlign:"center",color:"var(--text-muted)",fontSize:13}}>Aucun autre compte disponible.</div>
+        ) : (
+          <div style={{overflowY:"auto",maxHeight:320}} className="scroll">
+            {users.map(u => (
+              <label key={u.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 18px",borderBottom:"1px solid var(--border)",cursor:"pointer"}}>
+                <input type="checkbox" checked={selected.has(u.id)} onChange={()=>toggle(u.id)}/>
+                <span style={{fontWeight:500,fontSize:13,flex:1}}>{u.username}</span>
+                <span className={"bdg "+(ROLE_CLS[u.role]||"b-comp")} style={{fontSize:10}}>{ROLE_LABELS[u.role]||u.role}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        {err && <div className="err-banner" style={{margin:"8px 18px"}}>{err}</div>}
+        <div style={{padding:"12px 18px",borderTop:"1px solid var(--border)",display:"flex",gap:8,justifyContent:"flex-end"}}>
+          <button className="btn ghost" onClick={onClose}>Annuler</button>
+          <button className="btn orange" onClick={save} disabled={saving||loading}>{saving?"Enregistrement...":"Enregistrer"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── CreateAccountModal ── */
+function CreateAccountModal({onClose}) {
+  const user = useContext(UserCtx);
+  const [form,   setForm]   = useState({username:"", password:"", role:"prospect", company:""});
+  const [saving, setSaving] = useState(false);
+  const [ok,     setOk]     = useState("");
+  const [err,    setErr]    = useState("");
+
+  const submit = async e => {
+    e.preventDefault();
+    setSaving(true); setErr(""); setOk("");
+    try {
+      await apiFetch('/users', {method:'POST', body:JSON.stringify(form)});
+      setOk(`Compte "${form.username}" cree avec succes.`);
+      setForm({username:"", password:"", role:"prospect", company:""});
+    } catch(ex) { setErr(ex.message); }
+    setSaving(false);
+  };
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.6)",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+      onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card" style={{width:"100%",maxWidth:400,display:"flex",flexDirection:"column",gap:0}}>
+        <div style={{padding:"14px 18px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <div style={{fontWeight:700,fontSize:15,color:"var(--os-blue-dark)"}}>Creer un compte prospect</div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",fontSize:18,color:"var(--text-muted)",padding:4}}>&#x2715;</button>
+        </div>
+        <form onSubmit={submit} style={{padding:"14px 18px",display:"flex",flexDirection:"column",gap:10}}>
+          <input className="inp" placeholder="Identifiant (min 3 car.)" value={form.username}
+            onChange={e=>setForm(f=>({...f,username:e.target.value}))} required minLength={3}/>
+          <input className="inp" type="password" placeholder="Mot de passe (min 6 car.)" value={form.password}
+            onChange={e=>setForm(f=>({...f,password:e.target.value}))} required minLength={6}/>
+          <input className="inp" placeholder="Société (optionnel)" value={form.company}
+            onChange={e=>setForm(f=>({...f,company:e.target.value}))}/>
+          {user.role === "admin" && (
+            <select className="inp" value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+              <option value="prospect">Prospect</option>
+              <option value="outscale">Outscale</option>
+              <option value="admin">Admin</option>
+            </select>
+          )}
+          {err && <div className="err-banner">{err}</div>}
+          {ok  && <div style={{background:"#d4edda",border:"1px solid #c3e6cb",borderRadius:6,padding:"8px 12px",fontSize:13,color:"#155724"}}>{ok}</div>}
+          <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:4}}>
+            <button type="button" className="btn ghost" onClick={onClose}>Fermer</button>
+            <button type="submit" className="btn orange" disabled={saving}>{saving?"Creation...":"Creer le compte"}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ── ProfilesModal ── */
+function ProfilesModal({lines, activeRegions, totalM, onLoad, onClose}) {
+  const user = useContext(UserCtx);
+  const [profiles,    setProfiles]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [name,        setName]        = useState("");
+  const [editId,      setEditId]      = useState(null);
+  const [editName,    setEditName]    = useState("");
+  const [errMsg,      setErrMsg]      = useState("");
+  const [shareTarget, setShareTarget] = useState(null);
+
+  useEffect(() => {
+    apiFetch('/simulations').then(d => { setProfiles(d||[]); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const save = async () => {
+    const n = name.trim() || `Simulation ${new Date().toLocaleDateString("fr-FR")}`;
+    try {
+      const sim = await apiFetch('/simulations', {
+        method:'POST',
+        body: JSON.stringify({name:n, lines:lines.map(({_open,...r})=>r), activeRegions, monthly:totalM}),
+      });
+      if (sim) { setProfiles(p => [{...sim, _owned:true}, ...p]); setName(""); }
+    } catch(e) { setErrMsg(e.message); }
+  };
+
+  const del = async id => {
+    try {
+      await apiFetch(`/simulations/${id}`, {method:'DELETE'});
+      setProfiles(p => p.filter(s => s.id !== id));
+    } catch(e) { setErrMsg(e.message); }
+  };
+
+  const rename = async id => {
+    const n = editName.trim();
+    if (n) {
+      try {
+        await apiFetch(`/simulations/${id}`, {method:'PUT', body:JSON.stringify({name:n})});
+        setProfiles(p => p.map(s => s.id===id ? {...s, name:n} : s));
+      } catch(e) { setErrMsg(e.message); }
+    }
+    setEditId(null);
+  };
+
+  const canShare = user?.role === "outscale" || user?.role === "admin";
+  const owned  = profiles.filter(p => p._owned !== false);
+  const shared = profiles.filter(p => p._owned === false);
+
+  const renderRow = (p, isOwned) => (
+    <div key={p.id} style={{display:"flex",alignItems:"center",gap:10,padding:"10px 18px",borderBottom:"1px solid var(--border)"}}>
+      <div style={{flex:1,minWidth:0}}>
+        {isOwned && editId===p.id ? (
+          <input className="inp" style={{width:"100%",fontSize:13}} value={editName}
+            onChange={e=>setEditName(e.target.value)}
+            onBlur={()=>rename(p.id)}
+            onKeyDown={e=>{ if(e.key==="Enter") rename(p.id); if(e.key==="Escape") setEditId(null); }}
+            autoFocus/>
+        ) : (
+          <div style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:isOwned?"text":"default"}}
+            title={isOwned?"Double-clic pour renommer":""}
+            onDoubleClick={isOwned?()=>{ setEditId(p.id); setEditName(p.name); }:undefined}>
+            {p.name}
+            {!isOwned && <span style={{marginLeft:6,fontSize:10,fontWeight:400,color:"var(--text-muted)",background:"var(--panel-2)",padding:"2px 6px",borderRadius:4}}>Partage par {p.owner_username||"?"}</span>}
+            {isOwned && (p.shared_with||[]).length > 0 && <span style={{marginLeft:6,fontSize:10,fontWeight:400,color:"var(--os-blue-dark)",background:"var(--panel-2)",padding:"2px 6px",borderRadius:4}}>Partage ({(p.shared_with||[]).length})</span>}
+          </div>
+        )}
+        <div style={{fontSize:11,color:"var(--text-muted)",marginTop:3,display:"flex",gap:6,flexWrap:"wrap"}}>
+          <span>{new Date(p.savedAt).toLocaleString("fr-FR")}</span>
+          <span>—</span>
+          <span>{p.lines.length} ligne{p.lines.length!==1?"s":""}</span>
+          <span>—</span>
+          <span className="mono" style={{color:"var(--os-orange-dark)",fontWeight:600}}>{fE(p.monthly)}</span>
+          <span>—</span>
+          <span>{(p.activeRegions||[]).join(", ")}</span>
+        </div>
+      </div>
+      {isOwned && canShare && (
+        <button className="btn sm ghost" onClick={()=>setShareTarget(p)} title="Partager avec d'autres utilisateurs" style={{padding:"4px 8px",flexShrink:0,fontSize:13}}>⇗</button>
+      )}
+      <button className="btn sm" onClick={()=>{ onLoad(p.lines.map(x=>({...x,id:x.id||UID()})), p.activeRegions||["eu-west-2"]); onClose(); }}>Charger</button>
+      {isOwned && <button className="btn sm ghost danger" onClick={()=>del(p.id)} style={{padding:"4px 9px",flexShrink:0}}>&#x2715;</button>}
+    </div>
+  );
+
+  return (
+    <>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20}}
+      onClick={e=>{ if(e.target===e.currentTarget) onClose(); }}>
+      <div className="card" style={{width:"100%",maxWidth:680,maxHeight:"82vh",display:"flex",flexDirection:"column",gap:0}}>
+
+        <div style={{padding:"14px 18px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+          <div>
+            <div style={{fontWeight:700,fontSize:16,color:"var(--os-blue-dark)"}}>Simulations sauvegardees</div>
+            <div style={{fontSize:11,color:"var(--text-muted)",marginTop:2}}>{profiles.length} profil{profiles.length!==1?"s":""} enregistre{profiles.length!==1?"s":""}</div>
+          </div>
+          <button onClick={onClose} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,color:"var(--text-muted)",lineHeight:1,padding:4}}>&#x2715;</button>
+        </div>
+
+        <div style={{padding:"12px 18px",borderBottom:"1px solid var(--border)",display:"flex",gap:8,flexShrink:0}}>
+          <input className="inp" style={{flex:1}} value={name} onChange={e=>setName(e.target.value)}
+            placeholder="Nom de la simulation (ex : Projet A — Q2 2026)"
+            onKeyDown={e=>{ if(e.key==="Enter") save(); }}/>
+          <button className="btn orange" onClick={save}>Sauvegarder</button>
+        </div>
+
+        {errMsg && <div className="err-banner" style={{margin:"8px 18px 0"}}>{errMsg}</div>}
+
+        <div style={{overflowY:"auto",flex:1}} className="scroll">
+          {loading ? (
+            <div style={{textAlign:"center",padding:"36px 0",color:"var(--text-muted)",fontSize:13}}>Chargement...</div>
+          ) : profiles.length===0 ? (
+            <div style={{textAlign:"center",padding:"36px 0",color:"var(--text-muted)"}}>
+              <div style={{fontSize:32,marginBottom:8}}>○</div>
+              <div style={{fontSize:13}}>Aucune simulation sauvegardee.</div>
+              <div style={{fontSize:12,marginTop:4,color:"var(--text-muted)"}}>Donnez un nom ci-dessus et cliquez sur Sauvegarder.</div>
+            </div>
+          ) : (<>
+            {owned.length > 0 && <>
+              {shared.length > 0 && <div style={{padding:"5px 18px",fontSize:11,fontWeight:700,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:".06em",background:"var(--panel-2)"}}>Mes simulations</div>}
+              {owned.map(p => renderRow(p, true))}
+            </>}
+            {shared.length > 0 && <>
+              <div style={{padding:"5px 18px",fontSize:11,fontWeight:700,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:".06em",background:"var(--panel-2)"}}>Partagees avec moi</div>
+              {shared.map(p => renderRow(p, false))}
+            </>}
+          </>)}
+        </div>
+      </div>
+    </div>
+    {shareTarget && (
+      <ShareModal
+        sim={shareTarget}
+        onClose={()=>setShareTarget(null)}
+        onUpdated={u => setProfiles(p => p.map(s => s.id===u.id ? u : s))}
+      />
+    )}
+    </>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════════
    APP
 ══════════════════════════════════════════════════════════════════ */
-function App() {
+function App({user, onLogout, onLogin}) {
   const [lines,        setLines]        = useState([]);
   const [activeRegions,setActiveRegions]= useState(["eu-west-2"]);
   const [tab,          setTab]          = useState("split");
@@ -514,7 +902,13 @@ function App() {
   const [loaded,       setLoaded]       = useState(false);
   const [apiError,     setApiError]     = useState(false);
   const [filter,       setFilter]       = useState("");
-  const fileRef = useRef(null);
+  const [showProfiles,      setShowProfiles]      = useState(false);
+  const [showCreateAccount, setShowCreateAccount] = useState(false);
+  const [showLogin,         setShowLogin]         = useState(false);
+  const [regionFilter,      setRegionFilter]      = useState(null);
+  const fileRef  = useRef(null);
+  const listRef  = useRef(null);
+  const prevLen  = useRef(0);
 
   /* Chargement initial */
   useEffect(() => {
@@ -522,15 +916,12 @@ function App() {
       try {
         const {catalog: cat, regions: reg, engagements: eng} = await OSApi.loadAll();
         if (cat)  setCatalog(cat);
-        if (reg)  setRegions(reg);
+        if (reg)  { setRegions(reg); setActiveRegions(reg.map(r => r.id)); }
         if (eng)  setEngagements(eng);
         if (!cat) setApiError(true);
       } catch {
         setApiError(true);
       }
-
-      const savedAR = localStorage.getItem("osc:activeRegions");
-      if (savedAR) { try { setActiveRegions(JSON.parse(savedAR)); } catch {} }
 
       const savedLines = localStorage.getItem("osc:lines");
       setLines(savedLines ? JSON.parse(savedLines) : DEMO);
@@ -539,31 +930,25 @@ function App() {
     })();
   }, []);
 
-  useEffect(() => {
-    if (loaded) localStorage.setItem("osc:activeRegions", JSON.stringify(activeRegions));
-  }, [activeRegions, loaded]);
 
   useEffect(() => {
     if (!loaded) return;
     localStorage.setItem("osc:lines", JSON.stringify(lines.map(({_open,...r}) => r)));
   }, [lines, loaded]);
 
-  const toggleRegion = useCallback((rid) => {
-    setActiveRegions(prev => {
-      if (prev.includes(rid)) {
-        if (prev.length === 1) return prev; // impossible de tout desactiver
-        return prev.filter(r => r !== rid);
-      }
-      return [...prev, rid];
-    });
-  }, []);
+  useEffect(() => {
+    if (lines.length > prevLen.current && listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+    prevLen.current = lines.length;
+  }, [lines.length]);
 
   /* Catalog actif */
   const C = useMemo(() => {
     if (catalog) return catalog;
     return {
       ram:[], ded_fee:[], vcore:{v7:{medium:[],high:[],highest:[]}},
-      gpu:{}, oks:{}, storage:{}, oos:{gb:[]},
+      gpu:{}, oks:{}, storage:{}, oos:{Standard:[]},
       vpn:[], nat:[], lbu:[], eip:[],
       dl_setup:[], dl_1gbps:[], dl_10gbps:[],
       hdl_setup:[], hdl_1gbps:[], hdl_10gbps:[],
@@ -583,7 +968,11 @@ function App() {
     const s = ls.find(l => l.id===id);
     return s ? [...ls, {...s, id:UID(), desc:(s.desc||"")+" (copie)", _open:true}] : ls;
   }), []);
-  const addLine = useCallback(l => setLines(ls => [...ls, l]), []);
+  const addLine      = useCallback(l => setLines(ls => [...ls, l]), []);
+  const loadProfile  = useCallback((newLines, newRegions) => {
+    setLines(newLines);
+    setActiveRegions(newRegions);
+  }, []);
 
   const exportJson = () => {
     const blob = new Blob([JSON.stringify({lines: lines.map(({_open,...r}) => r)}, null, 2)], {type:"application/json"});
@@ -603,9 +992,11 @@ function App() {
     rd.readAsText(file);
   };
 
-  const filtered = filter
-    ? lines.filter(l => (filter==="compute" ? (l.type==="compute"||l.type==="dedicated-access") : l.type===filter))
-    : lines;
+  const filtered = lines.filter(l => {
+    const typeOk   = !filter || (filter==="compute" ? (l.type==="compute"||l.type==="dedicated-access") : l.type===filter);
+    const regionOk = !regionFilter || (l.region_id || regions[0]?.id || "eu-west-2") === regionFilter;
+    return typeOk && regionOk;
+  });
 
   const ctxVal = {regions, engagements, catalog: C, activeRegions};
 
@@ -625,132 +1016,207 @@ function App() {
             <img src="/assets/logo-outscale-blanc.svg" alt="OUTSCALE" height="28" style={{display:"block"}}/>
             <div style={{marginTop:1}}><div className="logo-text-sub">Cloud Estimator</div></div>
           </div>
-
-          <div className="vdiv"/>
-
-          <div style={{display:"flex",alignItems:"center",gap:4,flexShrink:0}}>
-            <span style={{fontSize:10,color:"rgba(255,255,255,.4)",textTransform:"uppercase",letterSpacing:".06em",marginRight:4}}>Regions</span>
-            {regions.map(r => (
-              <button key={r.id}
-                className={"reg-btn"+(activeRegions.includes(r.id)?" on":"")}
-                onClick={()=>toggleRegion(r.id)}
-                title={r.name+(activeRegions.includes(r.id)?" (active — cliquez pour desactiver)":" (cliquez pour activer)")}>
-                {FLAG[r.flag]} {r.short}
-              </button>
-            ))}
-          </div>
-
-          <div style={{flex:1}}/>
-
-          <nav className="nav-tabs">
-            {[{k:"split",l:"Cote a cote"},{k:"input",l:"Saisie"},{k:"view",l:"Synthese"},{k:"help",l:"Aide"}].map(t => (
-              <div key={t.k} className={"ntab"+(tab===t.k?" on":"")} onClick={()=>setTab(t.k)}>{t.l}</div>
-            ))}
-          </nav>
-
-          <div className="vdiv"/>
-
-          <div style={{display:"flex",gap:5,flexShrink:0}}>
-            <input ref={fileRef} type="file" accept="application/json" style={{display:"none"}}
-              onChange={e => { if (e.target.files[0]) importJson(e.target.files[0]); }}/>
-            <button className="io-btn" onClick={()=>fileRef.current.click()}>Importer</button>
-            <button className="io-btn" onClick={exportJson}>Exporter</button>
-            <a href="/admin/" className="io-btn" style={{textDecoration:"none",display:"flex",alignItems:"center"}}>Admin</a>
-          </div>
         </div>
       </header>
 
-      <main style={{flex:1,maxWidth:1760,width:"100%",margin:"0 auto",padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
+      <div style={{flex:1,display:"flex",alignItems:"stretch"}}>
 
-        {apiError && tab!=="help" && (
-          <div className="warn-banner">
-            API indisponible — tarifs chargés depuis le cache local. Lancez le backend :
-            <code style={{marginLeft:8,fontFamily:"monospace"}}>python3 api/server.py</code>
+        {/* ── Barre latérale ── */}
+        <aside className="sidebar">
+          <input ref={fileRef} type="file" accept="application/json" style={{display:"none"}}
+            onChange={e => { if (e.target.files[0]) importJson(e.target.files[0]); }}/>
+
+          {/* Connexion — en premier */}
+          {user ? (
+            <div className="sb-user">
+              <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:4}}>
+                <span className={"bdg "+(ROLE_CLS[user.role]||"b-comp")} style={{fontSize:10}}>
+                  {ROLE_LABELS[user.role]||user.role}
+                </span>
+                <span className="sb-user-name">{user.username}</span>
+              </div>
+              {user.company && <div className="sb-user-meta">{user.company}</div>}
+              <button className="sb-btn" style={{marginTop:9}} onClick={onLogout}>Déconnexion</button>
+            </div>
+          ) : (
+            <button className="sb-btn primary" onClick={()=>setShowLogin(true)}>Se connecter</button>
+          )}
+
+          {/* Actions */}
+          <div className="sb-sep" style={{marginTop:4}}/>
+          <div className="sb-group">
+            <button className="sb-btn" onClick={()=>{ user ? setShowProfiles(true) : setShowLogin(true); }}>
+              Mes simulations
+            </button>
+            {(user?.role==="outscale"||user?.role==="admin") && (
+              <button className="sb-btn" onClick={()=>setShowCreateAccount(true)}>Créer un compte</button>
+            )}
+            <div style={{display:"flex",gap:5}}>
+              <button className="sb-btn half" onClick={()=>fileRef.current.click()}>Importer</button>
+              <button className="sb-btn half" onClick={exportJson}>Exporter</button>
+            </div>
+            {user?.role==="admin" && (
+              <a href="/admin/" className="sb-btn" style={{textDecoration:"none",textAlign:"center",display:"block"}}>Admin</a>
+            )}
           </div>
-        )}
 
-        {!apiError && tab!=="help" && (
-          <div className="warn-banner">
-            <strong>Estimation indicative HT</strong> — Tarifs Outscale —
-            region{activeRegions.length>1?"s":""} : <strong>{activeRegions.join(", ")}</strong>.
-            <a href="https://fr.outscale.com/tarifs/" target="_blank" rel="noreferrer" style={{marginLeft:8,color:"#7c3700"}}>Tarifs officiels</a>
+          {/* Séparateur + Affichage */}
+          <div className="sb-sep"/>
+          <div className="sb-section-title">Affichage</div>
+          <div className="sb-tabs">
+            {[{k:"split",l:"Côté à côté"},{k:"input",l:"Saisie"},{k:"view",l:"Synthèse"}].map(t => (
+              <button key={t.k} className={"sb-tab"+(tab===t.k?" on":"")} onClick={()=>setTab(t.k)}>{t.l}</button>
+            ))}
           </div>
-        )}
 
-        {tab==="help" && <HelpPage/>}
+          {/* Aide — en bas */}
+          <div style={{marginTop:"auto",paddingTop:8}}>
+            <button className="sb-btn" style={tab==="help"?{background:"rgba(255,255,255,.18)",borderColor:"rgba(255,255,255,.4)",color:"#fff"}:{}} onClick={()=>setTab("help")}>Aide</button>
+          </div>
+        </aside>
 
-        {(tab==="split"||tab==="input"||tab==="view") && (
-          <div style={{display:"grid",gridTemplateColumns:tab==="split"?"1fr 1fr":"1fr",gap:14,alignItems:"start"}}>
+        {/* ── Contenu principal ── */}
+        <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+          <main style={{flex:1,width:"100%",padding:"16px 20px",display:"flex",flexDirection:"column",gap:14}}>
 
-            {(tab==="split"||tab==="input") && (
-              <div className="card">
-                <div className="phdr">
-                  <div>
-                    <div className="slbl">Hypotheses de consommation</div>
-                    <div className="stitle">Ressources consommees</div>
-                  </div>
-                  <div style={{textAlign:"right"}}>
-                    <div className="mono" style={{fontSize:18,fontWeight:700,color:"var(--os-orange-dark)"}}>{fE(totalM)}</div>
-                    <div style={{fontSize:10,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:".05em"}}>/mois</div>
-                  </div>
-                </div>
+            {apiError && tab!=="help" && (
+              <div className="warn-banner">
+                API indisponible — tarifs chargés depuis le cache local. Lancez le backend :
+                <code style={{marginLeft:8,fontFamily:"monospace"}}>python3 api/server.py</code>
+              </div>
+            )}
 
-                <div style={{display:"flex",flexWrap:"wrap",gap:4,padding:"8px 14px",borderBottom:"1px solid var(--border)",alignItems:"center"}}>
-                  <span style={{fontSize:11,color:"var(--text-muted)",marginRight:2}}>Afficher :</span>
-                  <button className={"btn xs"+(filter===""?" blue":"")} onClick={()=>setFilter("")}>Tout ({lines.length})</button>
-                  {[{id:"compute",l:"Compute"},{id:"gpu",l:"GPU"},{id:"oks",l:"OKS"},{id:"bsu",l:"BSU"},{id:"oos",l:"OOS"},{id:"net",l:"Reseau"},{id:"lic",l:"Licences"}].map(f => {
-                    const n = lines.filter(l => (f.id==="compute" ? (l.type==="compute"||l.type==="dedicated-access") : l.type===f.id)).length;
-                    if (!n) return null;
-                    return <button key={f.id} className={"btn xs"+(filter===f.id?" blue":"")} onClick={()=>setFilter(filter===f.id?"":f.id)}>{f.l} ({n})</button>;
-                  })}
-                  <div style={{flex:1}}/>
-                  <button className="btn xs ghost" onClick={()=>{if(confirm("Charger les donnees de demo ?"))setLines(DEMO);}}>Demo</button>
-                  <button className="btn xs ghost danger" onClick={()=>{if(confirm("Supprimer toutes les lignes ?"))setLines([]);}}>Vider</button>
-                </div>
+            {!apiError && tab!=="help" && (
+              <div className="warn-banner">
+                <strong>Estimation indicative HT</strong> — Tarifs Outscale —
+                regions : <strong>{[...new Set(lines.map(l=>l.region_id).filter(Boolean))].join(", ")||"—"}</strong>.
+                <a href="https://fr.outscale.com/tarifs/" target="_blank" rel="noreferrer" style={{marginLeft:8,color:"#7c3700"}}>Tarifs officiels</a>
+              </div>
+            )}
 
-                <div style={{padding:10,maxHeight:"calc(100vh - 315px)",overflowY:"auto"}} className="scroll">
-                  {filtered.length===0 ? (
-                    <div style={{textAlign:"center",padding:"28px 0",color:"var(--text-muted)"}}>
-                      <div style={{fontSize:34,marginBottom:6}}>○</div>
-                      <div style={{fontSize:13}}>Aucune ressource{filter?" dans cette categorie":""}.</div>
+            {tab==="help" && <HelpPage/>}
+
+            {(tab==="split"||tab==="input"||tab==="view") && (
+              <div style={{display:"grid",gridTemplateColumns:tab==="split"?"1fr 1fr":"1fr",gap:14,alignItems:"start"}}>
+
+                {(tab==="split"||tab==="input") && (
+                  <div className="card">
+                    <div className="phdr">
+                      <div>
+                        <div className="slbl">Hypotheses de consommation</div>
+                        <div className="stitle">Ressources consommees</div>
+                      </div>
+                      <div style={{textAlign:"right"}}>
+                        <div className="mono" style={{fontSize:18,fontWeight:700,color:"var(--os-orange-dark)"}}>{fE(totalM)}</div>
+                        <div style={{fontSize:10,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:".05em"}}>/mois</div>
+                      </div>
                     </div>
-                  ) : filtered.map(l => (
-                    <LineEditor key={l.id} line={l} C={C}
-                      onChange={nl => updLine(l.id, nl)}
-                      onDelete={()  => delLine(l.id)}
-                      onDuplicate={() => dupLine(l.id)}/>
-                  ))}
-                </div>
-                <div style={{padding:"8px 10px",borderTop:"1px solid var(--border)"}}>
-                  <AddMenu onAdd={addLine} C={C}/>
-                </div>
+
+                    <div style={{display:"flex",flexDirection:"column",gap:0,borderBottom:"1px solid var(--border)"}}>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:4,padding:"8px 14px",alignItems:"center"}}>
+                        <span style={{fontSize:11,color:"var(--text-muted)",marginRight:2}}>Type :</span>
+                        <button className={"btn xs"+(filter===""?" blue":"")} onClick={()=>setFilter("")}>Tout ({lines.length})</button>
+                        {[{id:"compute",l:"Compute"},{id:"gpu",l:"GPU"},{id:"oks",l:"OKS"},{id:"bsu",l:"BSU"},{id:"oos",l:"OOS"},{id:"net",l:"Reseau"},{id:"lic",l:"Licences"}].map(f => {
+                          const n = lines.filter(l => (f.id==="compute" ? (l.type==="compute"||l.type==="dedicated-access") : l.type===f.id)).length;
+                          if (!n) return null;
+                          return <button key={f.id} className={"btn xs"+(filter===f.id?" blue":"")} onClick={()=>setFilter(filter===f.id?"":f.id)}>{f.l} ({n})</button>;
+                        })}
+                        <div style={{flex:1}}/>
+                        <button className="btn xs orange" onClick={()=>{if(confirm("Charger les donnees de demo ?"))setLines(DEMO);}}>Demo</button>
+                        <button className="btn xs red" onClick={()=>{if(confirm("Supprimer toutes les lignes ?"))setLines([]);}}>Vider</button>
+                      </div>
+                      {regions.length > 1 && (
+                        <div style={{display:"flex",flexWrap:"wrap",gap:4,padding:"4px 14px 8px",alignItems:"center",borderTop:"1px solid var(--border)"}}>
+                          <span style={{fontSize:11,color:"var(--text-muted)",marginRight:2}}>Région :</span>
+                          <button className={"btn xs"+(regionFilter===null?" blue":"")} onClick={()=>setRegionFilter(null)}>Toutes</button>
+                          {regions.map(r => {
+                            const n = lines.filter(l => (l.region_id||regions[0]?.id)===r.id).length;
+                            return <button key={r.id} className={"btn xs"+(regionFilter===r.id?" blue":"")} onClick={()=>setRegionFilter(regionFilter===r.id?null:r.id)} title={r.name}>{FLAG[r.flag]} {r.short} ({n})</button>;
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    <div ref={listRef} style={{padding:10,maxHeight:"calc(100vh - 280px)",overflowY:"auto"}} className="scroll">
+                      {filtered.length===0 ? (
+                        <div style={{textAlign:"center",padding:"28px 0",color:"var(--text-muted)"}}>
+                          <div style={{fontSize:34,marginBottom:6}}>○</div>
+                          <div style={{fontSize:13}}>Aucune ressource{filter?" dans cette categorie":""}.</div>
+                        </div>
+                      ) : filtered.map(l => (
+                        <LineEditor key={l.id} line={l} C={C}
+                          onChange={nl => updLine(l.id, nl)}
+                          onDelete={()  => delLine(l.id)}
+                          onDuplicate={() => dupLine(l.id)}/>
+                      ))}
+                    </div>
+                    <div style={{padding:"8px 10px",borderTop:"1px solid var(--border)"}}>
+                      <AddMenu onAdd={addLine} C={C}/>
+                    </div>
+                  </div>
+                )}
+
+                {(tab==="split"||tab==="view") && (
+                  <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                    <PivotTable lines={lines} results={results}/>
+                    <div className="card">
+                      <div className="phdr"><div><div className="slbl">Analyse</div><div className="stitle">Par engagement</div></div></div>
+                      <div style={{padding:10}}><EngBreakdown lines={lines} results={results}/></div>
+                    </div>
+                  </div>
+                )}
+
               </div>
             )}
 
-            {(tab==="split"||tab==="view") && (
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                <PivotTable lines={lines} results={results}/>
-                <div className="card">
-                  <div className="phdr"><div><div className="slbl">Analyse</div><div className="stitle">Par engagement</div></div></div>
-                  <div style={{padding:10}}><EngBreakdown lines={lines} results={results}/></div>
-                </div>
-              </div>
-            )}
+            <footer style={{borderTop:"1px solid var(--border)",paddingTop:10,display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--text-muted)"}}>
+              <span>Outscale Cloud Estimator — <a href="https://fr.outscale.com/tarifs/" target="_blank" rel="noreferrer">fr.outscale.com/tarifs</a></span>
+              <span className="mono">{lines.length} ligne{lines.length!==1?"s":""}{regionFilter ? " — Région : "+regionFilter : ""}</span>
+            </footer>
+          </main>
+        </div>
 
-          </div>
-        )}
+      </div>
 
-        <footer style={{borderTop:"1px solid var(--border)",paddingTop:10,display:"flex",justifyContent:"space-between",fontSize:11,color:"var(--text-muted)"}}>
-          <span>Outscale Cloud Estimator — <a href="https://fr.outscale.com/tarifs/" target="_blank" rel="noreferrer">fr.outscale.com/tarifs</a></span>
-          <span className="mono">{lines.length} ligne{lines.length!==1?"s":""} — {activeRegions.join(", ")}</span>
-        </footer>
-      </main>
+      {showProfiles && (
+        <ProfilesModal
+          lines={lines}
+          activeRegions={activeRegions}
+          totalM={totalM}
+          onLoad={loadProfile}
+          onClose={()=>setShowProfiles(false)}/>
+      )}
+      {showCreateAccount && (
+        <CreateAccountModal onClose={()=>setShowCreateAccount(false)}/>
+      )}
+      {showLogin && (
+        <LoginPage
+          onLogin={u=>{ onLogin(u); setShowLogin(false); }}
+          onClose={()=>setShowLogin(false)}/>
+      )}
     </div>
     </AppCtx.Provider>
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+/* ── AuthGate ── */
+function AuthGate() {
+  const [user, setUser] = useState(() => {
+    const p = parseToken(getToken());
+    return p ? {id: p.sub, username: p.username, role: p.role, company: p.company||""} : null;
+  });
+
+  const handleLogin  = u => setUser(u);
+  const handleLogout = () => { clearToken(); setUser(null); };
+
+  return (
+    <UserCtx.Provider value={user}>
+      <App user={user} onLogout={handleLogout} onLogin={handleLogin}/>
+    </UserCtx.Provider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<AuthGate/>);
 </script>
 </body>
 </html>

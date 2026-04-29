@@ -90,6 +90,11 @@ tarifs-osc/
 
 - [ ] **Tester l'estimateur** avec données issues de l'API
 
+- [ ] **Gestion des licences**
+  - Calcul du coût des licences (Windows, SQL Server, etc.) depuis le catalog
+  - Affectation d'une ou plusieurs licences à une VM dans l'estimateur
+  - Affichage du coût licence dans le détail de ligne et dans le total
+
 ---
 
 ## Phase 3 — Interface Admin
@@ -133,6 +138,18 @@ tarifs-osc/
 
 ---
 
+## Phase 5 — Intégration API Outscale
+
+- [ ] **Récupération des tarifs via API Outscale**
+  - Identifier les endpoints Outscale exposant les tarifs (prix à la demande, RI, stockage, réseau)
+  - Créer une route backend `/api/sync` déclenchant la mise à jour du catalog depuis l'API Outscale
+  - Planifier une synchronisation automatique périodique (cron ou systemd timer)
+  - Snapshot automatique avant chaque mise à jour
+  - Bouton "Synchroniser" dans l'interface admin
+
+---
+
+/
 ## Phase 4 — Qualité / Déploiement
 
 - [ ] **Sécurité**
