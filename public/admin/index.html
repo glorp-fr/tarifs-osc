@@ -233,6 +233,30 @@ function AddVcoreRow({regions, onAdd}) {
   );
 }
 
+/* ── LicParamsRow ── */
+function LicParamsRow({name, lic, onUpdate}) {
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:16,padding:"4px 10px 6px 28px",
+      background:"var(--os-blue-pale2)",borderBottom:"1px solid var(--border)",fontSize:12}}>
+      <span style={{color:"var(--text-muted)",fontSize:11,minWidth:90}}>Paramètres auto :</span>
+      <label style={{display:"flex",alignItems:"center",gap:6}}>
+        <span style={{color:"var(--text-dim)",fontSize:11}}>vCPU / licence</span>
+        <input type="number" className="cat-inp" style={{width:64}} min={0} step={1}
+          value={lic.vcpus_per_lic ?? 1}
+          title="0 = facturation par VM"
+          onChange={e => onUpdate(name, "vcpus_per_lic", parseInt(e.target.value)||0)}/>
+        <span style={{fontSize:10,color:"var(--text-muted)"}}>(0 = /VM)</span>
+      </label>
+      <label style={{display:"flex",alignItems:"center",gap:6}}>
+        <span style={{color:"var(--text-dim)",fontSize:11}}>Min licences / VM</span>
+        <input type="number" className="cat-inp" style={{width:64}} min={1} step={1}
+          value={lic.min_lic ?? 1}
+          onChange={e => onUpdate(name, "min_lic", parseInt(e.target.value)||1)}/>
+      </label>
+    </div>
+  );
+}
+
 /* ── CatalogTab ── */
 function CatalogTab() {
   const [data,    setData]    = useState(null);
@@ -321,12 +345,21 @@ function CatalogTab() {
       if      (cat === 'gpu')     nc.gpu[name] = prices;
       else if (cat === 'oks')     nc.oks[name] = prices;
       else if (cat === 'storage') nc.storage[name] = {gb: prices, iops: iopsArr || Array(prices.length).fill(0)};
-      else if (cat === 'lic')     nc.lic[name] = {base:"h", price: prices};
+      else if (cat === 'lic')     nc.lic[name] = {base:"h", price: prices, vcpus_per_lic:1, min_lic:1};
       else if (cat === 'oos')     nc.oos[name] = prices;
       return nc;
     });
     const avail = prices.map(v => v > 0);
     if (avail.some(v => !v)) setAvails(prev => ({...prev, [`${cat}.${name}`]: avail}));
+    setDirty(true);
+  };
+
+  const updateLicParams = (name, field, val) => {
+    setData(prev => {
+      const nc = JSON.parse(JSON.stringify(prev));
+      if (nc.lic[name]) nc.lic[name][field] = val;
+      return nc;
+    });
     setDirty(true);
   };
 
@@ -519,9 +552,12 @@ function CatalogTab() {
           {pr("HDL 1 Gbps /mois","hdl_1g",data.hdl_1gbps||[], {availKey:"hdl_1gbps"})}
           {pr("HDL 10 Gbps /mois","hdl_10g",data.hdl_10gbps||[], {availKey:"hdl_10gbps"})}
           <div className="cat-section">Licences (EUR/h par unité)</div>
-          {Object.entries(data.lic||{}).map(([name,l]) =>
-            pr(name, `lic__${name}`, l.price||[], {availKey:`lic.${name}`, deletable:true, onDelete:()=>deleteService('lic',name)})
-          )}
+          {Object.entries(data.lic||{}).map(([name,l]) => (
+            <React.Fragment key={name}>
+              {pr(name, `lic__${name}`, l.price||[], {availKey:`lic.${name}`, deletable:true, onDelete:()=>deleteService('lic',name)})}
+              <LicParamsRow name={name} lic={l} onUpdate={updateLicParams}/>
+            </React.Fragment>
+          ))}
           <AddServiceRow regions={regions} onAdd={(n,ps)=>addService('lic',n,ps,null)} placeholder="Nom de la licence"/>
         </div>
       </div>

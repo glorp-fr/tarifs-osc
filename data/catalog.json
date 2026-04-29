@@ -1,10 +1,4 @@
 {
-  "_meta": {
-    "version": 2,
-    "updated_at": "2026-04-23T15:20:53.899628+00:00",
-    "updated_by": "admin",
-    "comment": "tarif Avril 2026"
-  },
   "_availability": {
     "gpu.Nvidia A10": [
       true,
@@ -26,6 +20,41 @@
       true,
       true,
       true
+    ],
+    "hdl_10gbps": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "hdl_1gbps": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "hdl_setup": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "lic.Oracle Linux OS (par VM)": [
+      true,
+      true,
+      false,
+      false,
+      false
+    ],
+    "lic.Red Hat Enterprise Linux OS (par VM)": [
+      true,
+      true,
+      false,
+      false,
+      false
     ],
     "oks.cp.3.masters.large": [
       true,
@@ -55,48 +84,61 @@
       false,
       false
     ],
-    "hdl_1gbps": [
-      true,
-      true,
-      false,
-      false,
-      false
-    ],
-    "hdl_10gbps": [
-      true,
-      true,
-      false,
-      false,
-      false
-    ],
-    "hdl_setup": [
-      true,
-      true,
-      false,
-      false,
-      false
-    ],
-    "lic.Oracle Linux OS (par VM)": [
-      true,
-      true,
-      false,
-      false,
-      false
-    ],
-    "lic.Red Hat Enterprise Linux OS (par VM)": [
-      true,
-      true,
-      false,
-      false,
-      false
-    ],
     "oos.Archive": [
       false,
       false,
       false,
       false,
       false
+    ],
+    "lic.Windows 10 E3 VDA (par VM)": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "lic.Windows Server": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "vcore.v1": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "vcore.v2": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "vcore.v3": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "vcore.v4": [
+      false,
+      false,
+      false,
+      false,
+      false
     ]
+  },
+  "_meta": {
+    "version": 3,
+    "updated_at": "2026-04-29T15:16:20.748007+00:00",
+    "updated_by": "admin",
+    "comment": "20260430"
   },
   "ded_fee": [
     2,
@@ -239,83 +281,111 @@
   "lic": {
     "Microsoft SQL Server 2019 - Enterprise (pack 2 coeurs)": {
       "base": "h",
+      "min_lic": 2,
       "price": [
         2.168,
         2.168,
         2.168,
         2.168,
         2.168
-      ]
+      ],
+      "vcpus_per_lic": 2
     },
     "Microsoft SQL Server 2019 - Standard (pack 2 coeurs)": {
       "base": "h",
+      "min_lic": 2,
       "price": [
         0.566,
         0.566,
         0.566,
         0.566,
         0.566
-      ]
+      ],
+      "vcpus_per_lic": 2
     },
     "Microsoft SQL Server 2019 - Web Edition (pack 2 coeurs)": {
       "base": "h",
+      "min_lic": 1,
       "price": [
         0.036,
         0.036,
         0.036,
         0.036,
         0.036
-      ]
+      ],
+      "vcpus_per_lic": 2
     },
     "Oracle Linux OS (par VM)": {
       "base": "h",
+      "min_lic": 1,
       "price": [
         0.2,
         0.2,
         0,
         0,
         0
-      ]
+      ],
+      "vcpus_per_lic": 0
     },
     "Red Hat Enterprise Linux (1 licence par vCore)": {
       "base": "h",
+      "min_lic": 1,
       "price": [
         0.019,
         0.019,
         0.019,
         0.019,
         0.019
-      ]
+      ],
+      "vcpus_per_lic": 1
     },
     "Red Hat Enterprise Linux OS (par VM)": {
       "base": "h",
+      "min_lic": 1,
       "price": [
         0.2,
         0.2,
         0,
         0,
         0
-      ]
+      ],
+      "vcpus_per_lic": 0
     },
     "Windows 10 E3 VDA (par VM)": {
       "base": "h",
+      "min_lic": 1,
       "price": [
         0.06,
         0.06,
         0.06,
         0.06,
         0.06
-      ]
+      ],
+      "vcpus_per_lic": 0
     },
     "Windows Server 2019/2022 (pack 2 coeurs - jusqu'a 2 VMs)": {
       "base": "h",
+      "min_lic": 1,
       "price": [
         0.121,
         0.121,
         0.121,
         0.121,
         0.121
-      ]
+      ],
+      "vcpus_per_lic": 2
+    },
+    "Windows Server": {
+      "base": "h",
+      "price": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "vcpus_per_lic": 4,
+      "min_lic": 1
     }
   },
   "nat": [
@@ -356,19 +426,19 @@
     ]
   },
   "oos": {
-    "Standard": [
-      0.025,
-      0.03,
-      0.025,
-      0.025,
-      0.025
-    ],
     "Archive": [
       0,
       0,
       0,
       0,
       0
+    ],
+    "Standard": [
+      0.025,
+      0.03,
+      0.025,
+      0.025,
+      0.025
     ]
   },
   "ram": [

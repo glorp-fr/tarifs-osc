@@ -21,6 +21,47 @@ const {useState, useEffect, useMemo, useRef, useCallback, createContext, useCont
 const {GROUPS, BLABELS, BCLS, FLAG, HPM, UID, fE, fp, CPUGENS, PERF_OPTS, NET_OPTS, DEMO, calcLine} = OSCalc;
 const {getToken, setToken, clearToken, parseToken, apiFetch} = OSApi;
 
+/* ── VM Licensing ── */
+const VM_LIC_OPTIONS = [
+  {v:"",               l:"Open Source"},
+  {v:"windows",        l:"Windows"},
+  {v:"windows_sql_std",l:"Windows & SQL Standard"},
+  {v:"windows_sql_ent",l:"Windows & SQL Enterprise"},
+  {v:"redhat",         l:"Red Hat"},
+];
+const VM_LIC_MAP = {
+  windows:         [{role:"os",  prefix:"Licence Windows",       key:"Windows Server 2019/2022 (pack 2 coeurs - jusqu\'a 2 VMs)"}],
+  windows_sql_std: [{role:"os",  prefix:"Licence Windows",       key:"Windows Server 2019/2022 (pack 2 coeurs - jusqu\'a 2 VMs)"},
+                    {role:"sql", prefix:"Licence SQL Standard",  key:"Microsoft SQL Server 2019 - Standard (pack 2 coeurs)"}],
+  windows_sql_ent: [{role:"os",  prefix:"Licence Windows",       key:"Windows Server 2019/2022 (pack 2 coeurs - jusqu\'a 2 VMs)"},
+                    {role:"sql", prefix:"Licence SQL Enterprise", key:"Microsoft SQL Server 2019 - Enterprise (pack 2 coeurs)"}],
+  redhat:          [{role:"os",  prefix:"Licence Red Hat",       key:"Red Hat Enterprise Linux (1 licence par vCore)"}],
+};
+function syncVmLicLines(vmId, vm, lines, C) {
+  const existing = lines.filter(l => l._auto_lic && l._parent_id === vmId);
+  const without  = lines.filter(l => !(l._auto_lic && l._parent_id === vmId));
+  if (!vm.licensing) return without;
+  const defs  = VM_LIC_MAP[vm.licensing] || [];
+  const label = vm.desc || "VM";
+  const newLines = defs.map(def => {
+    const entry  = C.lic?.[def.key] || {};
+    const perLic = entry.vcpus_per_lic ?? 1;
+    const minLic = entry.min_lic ?? 1;
+    const qty    = perLic === 0
+      ? (vm.qty || 1)
+      : Math.max(minLic, Math.ceil((vm.vcore || 1) / perLic)) * (vm.qty || 1);
+    const prev = existing.find(l => l._lic_role === def.role);
+    return {id: prev?.id || UID(), type:"lic",
+            desc:`${def.prefix} — ${label}`,
+            lic_type:def.key, lic_qty:qty, region_id:vm.region_id,
+            _auto_lic:true, _parent_id:vmId, _lic_role:def.role};
+  });
+  const vmIdx = without.findIndex(l => l.id === vmId);
+  const result = [...without];
+  result.splice(vmIdx + 1, 0, ...newLines);
+  return result;
+}
+
 /* ── Contextes ── */
 const AppCtx  = createContext({ regions: [], engagements: [], catalog: null, activeRegions: [] });
 const UserCtx = createContext(null);
@@ -100,6 +141,29 @@ function LineEditor({line, onChange, onDelete, onDuplicate, C}) {
 
   const regInfo = regions.find(r => r.id===regionId);
 
+  if (line._auto_lic) {
+    return (
+      <div className="acc" style={{borderLeft:"3px solid #fbcfe8",opacity:.92,marginBottom:7}}>
+        <div className="acc-hd" style={{cursor:"default",paddingLeft:18}}>
+          <span style={{fontSize:11,color:"#9d174d",marginRight:4,flexShrink:0}}>🔒</span>
+          <Bdg type="lic"/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontSize:13,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{line.desc}</div>
+            <div className="mono" style={{fontSize:11,color:"var(--text-muted)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              {line.lic_qty} × {line.lic_type}
+            </div>
+          </div>
+          <div style={{textAlign:"right",flexShrink:0}}>
+            <div className="mono" style={{fontSize:14,fontWeight:700,color:"var(--os-blue-dark)"}}>{fE(r.monthly,2)}</div>
+            <div style={{fontSize:10,color:"var(--text-muted)",textTransform:"uppercase",letterSpacing:".05em"}}>/mois</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const usageLocked = !!(line.engagement && line.engagement !== "on-demand");
+
   const fields = () => {
     switch (line.type) {
       case "compute": return (<>
@@ -108,31 +172,62 @@ function LineEditor({line, onChange, onDelete, onDuplicate, C}) {
         <Fld label="RAM GiB/VM"><Num value={line.ram} onChange={v=>u("ram",v)}/></Fld>
         <Fld label="Generation"><Sel value={line.cpu_gen} onChange={v=>u("cpu_gen",v)} options={CPU_GENS}/></Fld>
         <Fld label="Performance"><Sel value={line.perf} onChange={v=>u("perf",v)} options={PERF_OPTS}/></Fld>
-        <Fld label="Usage" hint="0-1 (1=100%)"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
-        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={cpuEngOpts}/></Fld>
+        <Fld label="Usage %" hint={usageLocked?"Forcé 100 % (RI)":"0 – 100"}>
+          <input type="number" className="inp mono" min={0} max={100} step={5}
+            value={usageLocked ? 100 : Math.round((line.usage||0)*100)}
+            readOnly={usageLocked}
+            style={usageLocked?{opacity:.55,cursor:"not-allowed",background:"var(--panel-2)"}:{}}
+            onChange={e=>!usageLocked&&u("usage",e.target.value===""?0:Number(e.target.value)/100)}/>
+        </Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>{
+          const nl={...line,engagement:v}; if(v!=="on-demand") nl.usage=1; onChange(nl);
+        }} options={cpuEngOpts}/></Fld>
         <Fld label="VM dediee"><Sel value={line.dedicated?"y":"n"} onChange={v=>u("dedicated",v==="y")} options={[{v:"n",l:"Non"},{v:"y",l:"Oui (+10%)"}]}/></Fld>
         <Fld label="Stockage BSU" w2><Sel value={line.storage_type||""} onChange={v=>u("storage_type",v)} placeholder="Aucun" options={STOR_OPTS}/></Fld>
         {line.storage_type && <>
           <Fld label="GiB"><Num value={line.storage_gb} onChange={v=>u("storage_gb",v)}/></Fld>
           <Fld label="IOPS (io1)"><Num value={line.iops} onChange={v=>u("iops",v)}/></Fld>
         </>}
+        <Fld label="Systeme exploitation" w2>
+          <Sel value={line.licensing||""} onChange={v=>u("licensing",v)} options={VM_LIC_OPTIONS}/>
+        </Fld>
       </>);
       case "dedicated-access": return (<>
         <Fld label="Qte acces"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
-        <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
-        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={cpuEngOpts}/></Fld>
+        <Fld label="Usage %" hint={usageLocked?"Forcé 100 % (RI)":"0 – 100"}>
+          <input type="number" className="inp mono" min={0} max={100} step={5}
+            value={usageLocked ? 100 : Math.round((line.usage||0)*100)}
+            readOnly={usageLocked}
+            style={usageLocked?{opacity:.55,cursor:"not-allowed",background:"var(--panel-2)"}:{}}
+            onChange={e=>!usageLocked&&u("usage",e.target.value===""?0:Number(e.target.value)/100)}/>
+        </Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>{
+          const nl={...line,engagement:v}; if(v!=="on-demand") nl.usage=1; onChange(nl);
+        }} options={cpuEngOpts}/></Fld>
       </>);
       case "gpu": return (<>
         <Fld label="Nb GPUs"><Num value={line.gpu_qty} onChange={v=>u("gpu_qty",v)} min={1}/></Fld>
         <Fld label="Type GPU"><Sel value={line.gpu_type} onChange={v=>u("gpu_type",v)} options={GPU_OPTS}/></Fld>
-        <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
-        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>u("engagement",v)} options={gpuEngOpts}/></Fld>
+        <Fld label="Usage %" hint={usageLocked?"Forcé 100 % (RI)":"0 – 100"}>
+          <input type="number" className="inp mono" min={0} max={100} step={5}
+            value={usageLocked ? 100 : Math.round((line.usage||0)*100)}
+            readOnly={usageLocked}
+            style={usageLocked?{opacity:.55,cursor:"not-allowed",background:"var(--panel-2)"}:{}}
+            onChange={e=>!usageLocked&&u("usage",e.target.value===""?0:Number(e.target.value)/100)}/>
+        </Fld>
+        <Fld label="Engagement" w2><Sel value={line.engagement} onChange={v=>{
+          const nl={...line,engagement:v}; if(v!=="on-demand") nl.usage=1; onChange(nl);
+        }} options={gpuEngOpts}/></Fld>
         <div className="col-span-2"><div className="warn-banner">Remise RI plafonnee a {Math.round(gpuCap*100)}% sur les GPU.</div></div>
       </>);
       case "oks": return (<>
         <Fld label="Nb plans"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
         <Fld label="Type" w2><Sel value={line.cp} onChange={v=>u("cp",v)} options={OKS_OPTS}/></Fld>
-        <Fld label="Usage"><Num value={line.usage} onChange={v=>u("usage",v)} min={0} step={0.05}/></Fld>
+        <Fld label="Usage %">
+          <input type="number" className="inp mono" min={0} max={100} step={5}
+            value={Math.round((line.usage||0)*100)}
+            onChange={e=>u("usage",e.target.value===""?0:Number(e.target.value)/100)}/>
+        </Fld>
       </>);
       case "bsu": return (<>
         <Fld label="Nb volumes"><Num value={line.qty} onChange={v=>u("qty",v)} min={1}/></Fld>
@@ -962,12 +1057,33 @@ function App({user, onLogout, onLogin}) {
   );
   const totalM = useMemo(() => results.reduce((s,r) => s+r.monthly, 0), [results]);
 
-  const updLine = useCallback((id, nl) => setLines(ls => ls.map(l => l.id===id ? nl : l)), []);
-  const delLine = useCallback((id)      => setLines(ls => ls.filter(l => l.id!==id)), []);
-  const dupLine = useCallback((id)      => setLines(ls => {
-    const s = ls.find(l => l.id===id);
-    return s ? [...ls, {...s, id:UID(), desc:(s.desc||"")+" (copie)", _open:true}] : ls;
-  }), []);
+  const updLine = useCallback((id, nl) => {
+    setLines(ls => {
+      const updated = ls.map(l => l.id===id ? nl : l);
+      if (nl.type !== "compute") return updated;
+      return syncVmLicLines(id, nl, updated, C);
+    });
+  }, [C]);
+  const delLine = useCallback((id) => {
+    setLines(ls => {
+      const line = ls.find(l => l.id===id);
+      if (line?.type === "compute") {
+        return ls.filter(l => l.id!==id && !(l._auto_lic && l._parent_id===id));
+      }
+      return ls.filter(l => l.id!==id);
+    });
+  }, []);
+  const dupLine = useCallback((id) => {
+    setLines(ls => {
+      const s = ls.find(l => l.id===id);
+      if (!s) return ls;
+      const newId = UID();
+      const dup = {...s, id:newId, desc:(s.desc||"")+" (copie)", _open:true};
+      const appended = [...ls, dup];
+      if (s.type==="compute" && s.licensing) return syncVmLicLines(newId, dup, appended, C);
+      return appended;
+    });
+  }, [C]);
   const addLine      = useCallback(l => setLines(ls => [...ls, l]), []);
   const loadProfile  = useCallback((newLines, newRegions) => {
     setLines(newLines);
@@ -993,6 +1109,11 @@ function App({user, onLogout, onLogin}) {
   };
 
   const filtered = lines.filter(l => {
+    if (l._auto_lic) {
+      const typeOk   = !filter || filter==="compute" || filter==="lic";
+      const regionOk = !regionFilter || (l.region_id || regions[0]?.id || "eu-west-2") === regionFilter;
+      return typeOk && regionOk;
+    }
     const typeOk   = !filter || (filter==="compute" ? (l.type==="compute"||l.type==="dedicated-access") : l.type===filter);
     const regionOk = !regionFilter || (l.region_id || regions[0]?.id || "eu-west-2") === regionFilter;
     return typeOk && regionOk;
